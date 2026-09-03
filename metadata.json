@@ -1,0 +1,6 @@
+{
+  "name": "BioSync Admin - Enterprise HR",
+  "description": "Sistema de gestión de biometría, control de asistencia en tiempo real, administración de hardware y portal de autoservicio de RRHH.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

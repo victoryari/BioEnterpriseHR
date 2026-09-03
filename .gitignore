@@ -1,0 +1,17 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Backend Laravel Ignored Folders
+backend_api/vendor/
+backend_api/storage/logs/*.log
+backend_api/storage/framework/cache/data/*
+backend_api/storage/framework/sessions/*
+backend_api/storage/framework/views/*
+backend_api/.env
+backend_api/public/storage

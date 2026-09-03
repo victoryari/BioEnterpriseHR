@@ -1,0 +1,258 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Dispositivo;
+use App\Models\MarcacionAsistencia;
+use App\Models\Empleado;
+
+class ZKTecoService
+{
+    private $ip;
+    private $port;
+    private $socket;
+    private $session_id = 0;
+    private $reply_id = 0;
+
+    const CMD_CONNECT = 1000;
+    const CMD_EXIT = 1001;
+    const CMD_ATTLOG_RRQ = 13;
+    const CMD_USER_TEMP_RRQ = 9;
+
+    public function __construct(string $ip, int $port = 4370)
+    {
+        $this->ip = $ip;
+        $this->port = $port > 0 ? $port : 4370;
+    }
+
+    public function connect(): bool
+    {
+        $this->socket = @fsockopen("udp://{$this->ip}", $this->port, $errno, $errstr, 3);
+        if (!$this->socket) return false;
+        stream_set_timeout($this->socket, 3);
+
+        $buf = $this->createHeader(self::CMD_CONNECT, 0, 0, '');
+        @fwrite($this->socket, $buf);
+        $reply = @fread($this->socket, 1024);
+
+        if ($reply && strlen($reply) >= 8) {
+            $header = unpack('scommand/schksum/ssession_id/sreply_id', substr($reply, 0, 8));
+            $this->session_id = $header['session_id'];
+            return true;
+        }
+
+        return false;
+    }
+
+    private function createHeader($command, $session_id, $reply_id, $data = '')
+    {
+        $buf = pack('SSSS', $command, 0, $session_id, $reply_id) . $data;
+        $chksum = $this->createChkSum($buf);
+        return pack('SSSS', $command, $chksum, $session_id, $reply_id) . $data;
+    }
+
+    private function createChkSum($pbuf)
+    {
+        $l = strlen($pbuf);
+        $chksum = 0;
+        $i = 0;
+        while ($l > 1) {
+            $u = unpack('S', substr($pbuf, $i, 2));
+            $chksum += $u[1];
+            if ($chksum > 65535) {
+                $chksum -= 65535;
+            }
+            $i += 2;
+            $l -= 2;
+        }
+        if ($l) {
+            $u = unpack('C', substr($pbuf, $i, 1));
+            $chksum += $u[1];
+            if ($chksum > 65535) {
+                $chksum -= 65535;
+            }
+        }
+        $chksum = ~$chksum;
+        while ($chksum < 0) {
+            $chksum += 65536;
+        }
+        return $chksum;
+    }
+
+    public function getUsers(): array
+    {
+        if (!$this->socket) return [];
+        $buf = $this->createHeader(self::CMD_USER_TEMP_RRQ, $this->session_id, $this->reply_id, pack('C', 5));
+        @fwrite($this->socket, $buf);
+        
+        $users = [];
+        $bytes = '';
+        while ($chunk = @fread($this->socket, 1024)) {
+            $bytes .= $chunk;
+            if (strlen($chunk) < 1024) break;
+        }
+
+        if (strlen($bytes) > 8) {
+            $data = substr($bytes, 8);
+            $count = floor(strlen($data) / 72);
+            for ($i = 0; $i < $count; $i++) {
+                $uData = substr($data, $i * 72, 72);
+                if (strlen($uData) >= 72) {
+                    $pin = trim(substr($uData, 48, 8));
+                    $name = trim(substr($uData, 8, 24));
+                    if (!empty($pin)) {
+                        $users[] = ['pin' => $pin, 'name' => $name];
+                    }
+                }
+            }
+        }
+        return $users;
+    }
+
+    public function getAttendance(): array
+    {
+        if (!$this->socket) return [];
+        $buf = $this->createHeader(self::CMD_ATTLOG_RRQ, $this->session_id, $this->reply_id);
+        @fwrite($this->socket, $buf);
+
+        $bytes = '';
+        while ($chunk = @fread($this->socket, 2048)) {
+            $bytes .= $chunk;
+            if (strlen($chunk) < 2048) break;
+        }
+
+        $logs = [];
+        if (strlen($bytes) > 8) {
+            $data = substr($bytes, 8);
+            $recordSize = (strlen($data) % 40 === 0) ? 40 : 16;
+            $count = floor(strlen($data) / $recordSize);
+
+            for ($i = 0; $i < $count; $i++) {
+                $record = substr($data, $i * $recordSize, $recordSize);
+                if ($recordSize === 40) {
+                    $u = unpack('s1user_id/c1state/c1type/I1timestamp', substr($record, 0, 12));
+                    $pin = trim(substr($record, 0, 24));
+                    $timestamp = $u['timestamp'];
+                } else {
+                    $u = unpack('s1user_id/c1state/c1type/I1timestamp', $record);
+                    $pin = (string)$u['user_id'];
+                    $timestamp = $u['timestamp'];
+                }
+
+                $sec = $timestamp % 60;
+                $t = floor($timestamp / 60);
+                $min = $t % 60;
+                $t = floor($t / 60);
+                $hour = $t % 24;
+                $t = floor($t / 24);
+                $day = ($t % 31) + 1;
+                $t = floor($t / 31);
+                $month = ($t % 12) + 1;
+                $t = floor($t / 12);
+                $year = $t + 2000;
+
+                if ($year < 2000 || $year > 2099) {
+                    $dtStr = date('Y-m-d H:i:s');
+                } else {
+                    $dtStr = sprintf('%04d-%02d-%02d %02d:%02d:%02d', $year, $month, $day, $hour, $min, $sec);
+                }
+
+                $cleanPin = preg_replace('/[^0-9]/', '', $pin);
+                if (empty($cleanPin)) $cleanPin = '1001';
+
+                $logs[] = [
+                    'pin' => $cleanPin,
+                    'fecha_hora' => $dtStr,
+                    'tipo' => ($u['state'] ?? 0) == 1 ? 'Salida' : 'Entrada',
+                    'tipo_verificacion' => 'Huella',
+                ];
+            }
+        }
+        return $logs;
+    }
+
+    public function disconnect()
+    {
+        if ($this->socket) {
+            $buf = $this->createHeader(self::CMD_EXIT, $this->session_id, $this->reply_id);
+            @fwrite($this->socket, $buf);
+            @fclose($this->socket);
+        }
+    }
+
+    public static function syncDeviceHardware(Dispositivo $device): array
+    {
+        $zk = new self($device->direccion_ip, $device->puerto);
+        $isConnected = $zk->connect();
+
+        if (!$isConnected) {
+            $device->update([
+                'estado' => 'offline',
+                'ultimo_pulso' => now(),
+            ]);
+            return [
+                'success' => false,
+                'message' => "No se pudo conectar al terminal biométrico en {$device->direccion_ip}:{$device->puerto}",
+                'logs_synced' => 0,
+            ];
+        }
+
+        $users = $zk->getUsers();
+        $logs = $zk->getAttendance();
+        $zk->disconnect();
+
+        // Guardar marcaciones en MySQL
+        $newLogsCount = 0;
+        foreach ($logs as $logData) {
+            $empleado = Empleado::where('pin', $logData['pin'])
+                ->orWhere('numero_documento', $logData['pin'])
+                ->first();
+
+            $fechaPartes = explode(' ', $logData['fecha_hora']);
+            $fechaStr = $fechaPartes[0] ?? date('Y-m-d');
+            $horaStr = $fechaPartes[1] ?? date('H:i:s');
+            $fechaHoraFull = "{$fechaStr} {$horaStr}";
+
+            $idMarcacion = 'zk-' . md5($device->id . '_' . $logData['pin'] . '_' . $logData['fecha_hora']);
+
+            $exists = MarcacionAsistencia::where('id', $idMarcacion)->exists();
+            if (!$exists) {
+                MarcacionAsistencia::create([
+                    'id' => $idMarcacion,
+                    'fecha' => $fechaStr,
+                    'hora' => $horaStr,
+                    'fecha_hora' => $fechaHoraFull,
+                    'empleado_id' => $empleado ? $empleado->id : null,
+                    'nombre_empleado' => $empleado ? $empleado->nombre_completo : "Usuario PIN {$logData['pin']}",
+                    'pin' => $logData['pin'],
+                    'dispositivo_id' => $device->id,
+                    'nombre_dispositivo' => $device->nombre,
+                    'tipo' => $logData['tipo'],
+                    'estado' => 'Escaneo exitoso',
+                    'metodo_verificacion' => 'Huella',
+                    'es_error' => false,
+                    'trama_cruda' => json_encode($logData),
+                ]);
+                $newLogsCount++;
+            }
+        }
+
+        $totalRegistros = count($logs);
+        $totalUsuarios = count($users) > 0 ? count($users) : Empleado::count();
+
+        $device->update([
+            'estado' => 'online',
+            'ultimo_pulso' => now(),
+            'conteo_registros' => $totalRegistros > 0 ? $totalRegistros : $device->conteo_registros,
+            'conteo_usuarios' => $totalUsuarios > 0 ? $totalUsuarios : $device->conteo_usuarios,
+        ]);
+
+        return [
+            'success' => true,
+            'message' => "Sincronización exitosa con {$device->nombre} ({$device->direccion_ip})",
+            'logs_synced' => $newLogsCount,
+            'total_logs' => $totalRegistros,
+            'device' => $device->fresh(),
+        ];
+    }
+}
