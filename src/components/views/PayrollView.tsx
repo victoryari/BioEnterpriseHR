@@ -17,8 +17,20 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
   punchLogs = [],
   employees: initialEmployees = [],
 }) => {
+  const currentYearMonth = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  }, []);
+
   const [activeTab, setActiveTab] = useState<'planillas' | 'boletas' | 'utilidades' | 'liquidaciones' | 'cts' | 'gratificaciones' | 'plame' | 'parametros'>('planillas');
-  const [periodo, setPeriodo] = useState('2026-08');
+  const [periodo, setPeriodo] = useState<string>(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  });
   const [selectedEmpresa, setSelectedEmpresa] = useState<string>(EMPRESAS_GRUPO_CARMELITA[0]);
   const [loading, setLoading] = useState(false);
 
@@ -32,7 +44,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
   const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
 
   // Estados Módulo Utilidades D.L. 892
-  const [ejercicioUtilidad, setEjercicioUtilidad] = useState<number>(2026);
+  const [ejercicioUtilidad, setEjercicioUtilidad] = useState<number>(() => new Date().getFullYear());
   const [rentaNetaEmpresa, setRentaNetaEmpresa] = useState<string>('1200000.00');
   const [porcentajeSector, setPorcentajeSector] = useState<number>(10);
   const [cierreUtilidad, setCierreUtilidad] = useState<UtilidadAnual | null>(null);
@@ -47,7 +59,12 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
   const [isLiquidationPayslipModalOpen, setIsLiquidationPayslipModalOpen] = useState<boolean>(false);
 
   // Estados Módulo Estructuras PLAME SUNAT (PDT 0601)
-  const [periodoPlame, setPeriodoPlame] = useState('2026-08');
+  const [periodoPlame, setPeriodoPlame] = useState<string>(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  });
   const [empresaPlame, setEmpresaPlame] = useState<string>(EMPRESAS_GRUPO_CARMELITA[0]);
   const [plameData, setPlameData] = useState<any>(null);
   const [loadingPlame, setLoadingPlame] = useState<boolean>(false);

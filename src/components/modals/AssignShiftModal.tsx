@@ -25,7 +25,7 @@ export const AssignShiftModal: React.FC<AssignShiftModalProps> = ({
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(employees[0]?.id || '');
   const [selectedDept, setSelectedDept] = useState<string>(departamentos?.[0]?.nombre || 'Operaciones');
   const [selectedSede, setSelectedSede] = useState<string>(sedes?.[0]?.nombre || '');
-  const [fechaInicio, setFechaInicio] = useState('2026-08-01');
+  const [fechaInicio, setFechaInicio] = useState(() => new Date().toISOString().split('T')[0]);
   const [fechaFin, setFechaFin] = useState('');
 
   React.useEffect(() => {
