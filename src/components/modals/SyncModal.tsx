@@ -38,25 +38,29 @@ export const SyncModal: React.FC<SyncModalProps> = ({
     const now = () => new Date().toLocaleTimeString('es-PE', { hour12: false });
     const devCount = devices.length > 0 ? devices.length : 1;
 
-    setCurrentStep('Conectando vía Socket UDP a los terminales biométricos...');
-    setLogs([`[${now()}] Iniciando protocolo de enlace directo con ${devCount} terminal(es)...`]);
+    setCurrentStep('Conectando vía Socket UDP / TCP a los terminales biométricos...');
+    setLogs([`[${now()}] Iniciando protocolo de enlace con ${devCount} terminal(es) en red...`]);
 
     try {
-      setProgress(45);
-      setCurrentStep('Descargando marcaciones de asistencia y contando usuarios enrolados...');
+      setProgress(40);
+      setCurrentStep('Leyendo transacciones biométricas y descargando marcaciones...');
+      setLogs((prev) => [
+        ...prev,
+        `[${now()}] Leyendo paquetes de transacciones y registros de paso...`,
+      ]);
+
       const res = await apiService.syncAllDevices();
 
       setProgress(85);
-      setCurrentStep('Procesando marcaciones en MySQL y actualizando tarjetas de hardware...');
+      setCurrentStep('Procesando marcaciones en MySQL y actualizando estado de terminales...');
       setLogs((prev) => [
         ...prev,
-        `[${now()}] Marcaciones procesadas: ${res.total_logs_synced || 0} registros nuevos.`,
+        `[${now()}] Marcaciones procesadas: ${res.total_logs_synced || res.logs_synced || 0} registros nuevos.`,
         `[${now()}] ${res.message || 'Sincronización de red completada con éxito.'}`,
       ]);
 
       setProgress(100);
-      setCurrentStep('¡Sincronización de red completada con éxito!');
-      setSyncing(false);
+      setCurrentStep('¡Sincronización y lectura de transacciones completada!');
       setIsCompleted(true);
       onSyncComplete();
     } catch (err: any) {
@@ -64,11 +68,12 @@ export const SyncModal: React.FC<SyncModalProps> = ({
       setCurrentStep('Finalizado con observaciones');
       setLogs((prev) => [
         ...prev,
-        `[${now()}] Notificación: ${err.message || 'Sincronización finalizada'}`,
+        `[${now()}] Aviso: ${err.message || 'Algunos terminales no respondieron al socket en el tiempo esperado.'}`,
       ]);
-      setSyncing(false);
       setIsCompleted(true);
       onSyncComplete();
+    } finally {
+      setSyncing(false);
     }
   };
 

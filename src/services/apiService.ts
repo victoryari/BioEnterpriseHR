@@ -15,12 +15,27 @@ import {
 } from '../types';
 
 export const getApiBaseUrl = (): string => {
+  // 1. Variable de entorno Vite inyectada en tiempo de compilación (Render, Vercel, Netlify)
+  const envUrl = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    const clean = envUrl.trim().replace(/\/$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+
+  // 2. Detección automática según el hostname del navegador
   if (typeof window !== 'undefined' && window.location) {
     const hostname = window.location.hostname;
-    if (hostname) {
+    
+    // Si estamos en producción en Render o Vercel
+    if (hostname.includes('onrender.com') || hostname.includes('vercel.app')) {
+      return 'https://bioenterprise-api-q54p.onrender.com/api';
+    }
+
+    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
       return `http://${hostname}:8002/api`;
     }
   }
+
   return 'http://127.0.0.1:8002/api';
 };
 
@@ -28,6 +43,27 @@ export let API_BASE_URL = getApiBaseUrl();
 
 export const setApiBaseUrl = (url: string) => {
   API_BASE_URL = url;
+};
+
+export const fetchWithTimeout = async (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs: number = 10000
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const res = await fetch(input, {
+      ...init,
+      signal: init?.signal || controller.signal,
+    });
+    return res;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 // Mapeo entre roles del frontend y los roles del enum de MySQL en la BD bioenterprise_hr
@@ -125,37 +161,15 @@ const mapEstadoForBackend = (estado?: string): string => {
 
 export const apiService = {
   checkHealth: async (): Promise<boolean> => {
-    const candidates = Array.from(
-      new Set([
-        API_BASE_URL,
-        getApiBaseUrl(),
-        'http://127.0.0.1:8002/api',
-        'http://localhost:8002/api',
-      ])
-    );
-
-    for (const url of candidates) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-        const res = await fetch(`${url}/health`, {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          API_BASE_URL = url;
-          return true;
-        }
-      } catch {
-        // Continuar probando siguiente candidato
-      }
+    try {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/health`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      }, 2000);
+      return res.ok;
+    } catch {
+      return false;
     }
-
-    return false;
   },
 
   // =========================================================================
@@ -530,7 +544,7 @@ export const apiService = {
   // =========================================================================
 
   getDevices: async (): Promise<Dispositivo[]> => {
-    const res = await fetch(`${API_BASE_URL}/dispositivos`, { method: 'GET', headers: { Accept: 'application/json' } });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/dispositivos`, { method: 'GET', headers: { Accept: 'application/json' } }, 10000);
     if (!res.ok) throw new Error(`Error ${res.status} al obtener dispositivos de MySQL`);
     const data = await res.json();
     return data.map((d: any) => ({
@@ -550,7 +564,7 @@ export const apiService = {
   },
 
   createDevice: async (dev: Dispositivo): Promise<Dispositivo> => {
-    const res = await fetch(`${API_BASE_URL}/dispositivos`, {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/dispositivos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
@@ -563,13 +577,13 @@ export const apiService = {
         protocolo: dev.protocolo,
         estado: dev.estado,
       }),
-    });
+    }, 10000);
     if (!res.ok) throw new Error(`Error ${res.status} al crear dispositivo en MySQL`);
     return dev;
   },
 
   updateDevice: async (dev: Dispositivo): Promise<Dispositivo> => {
-    const res = await fetch(`${API_BASE_URL}/dispositivos/${dev.id}`, {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/dispositivos/${dev.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
@@ -580,32 +594,38 @@ export const apiService = {
         protocolo: dev.protocolo,
         estado: dev.estado,
       }),
-    });
+    }, 10000);
     if (!res.ok) throw new Error(`Error ${res.status} al actualizar dispositivo en MySQL`);
     return dev;
   },
 
   deleteDevice: async (id: string): Promise<boolean> => {
-    const res = await fetch(`${API_BASE_URL}/dispositivos/${id}`, { method: 'DELETE', headers: { Accept: 'application/json' } });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/dispositivos/${id}`, { method: 'DELETE', headers: { Accept: 'application/json' } }, 10000);
     if (!res.ok) throw new Error(`Error ${res.status} al eliminar dispositivo en MySQL`);
     return true;
   },
 
   syncDevice: async (id: string): Promise<any> => {
-    const res = await fetch(`${API_BASE_URL}/dispositivos/${id}/sync`, {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/dispositivos/${id}/sync`, {
       method: 'POST',
       headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) throw new Error(`Error ${res.status} al sincronizar dispositivo vía socket`);
+    }, 15000);
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.message || `Error ${res.status} al sincronizar terminal biométrico`);
+    }
     return await res.json();
   },
 
   syncAllDevices: async (): Promise<any> => {
-    const res = await fetch(`${API_BASE_URL}/dispositivos/sync-all`, {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/dispositivos/sync-all`, {
       method: 'POST',
       headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) throw new Error(`Error ${res.status} al sincronizar red de dispositivos`);
+    }, 20000);
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.message || `Error ${res.status} al sincronizar red de terminales`);
+    }
     return await res.json();
   },
 
@@ -614,7 +634,7 @@ export const apiService = {
   // =========================================================================
 
   getPunchLogs: async (): Promise<MarcacionAsistencia[]> => {
-    const res = await fetch(`${API_BASE_URL}/marcaciones`, { method: 'GET', headers: { Accept: 'application/json' } });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/marcaciones`, { method: 'GET', headers: { Accept: 'application/json' } }, 10000);
     if (!res.ok) throw new Error(`Error ${res.status} al obtener marcaciones de MySQL`);
     const data = await res.json();
     return data.map((m: any) => ({

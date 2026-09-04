@@ -51,7 +51,7 @@ import { ManageHolidaysModal } from './components/modals/ManageHolidaysModal';
 import { ManageOrgsModal } from './components/modals/ManageOrgsModal';
 import { ManualPunchModal } from './components/modals/ManualPunchModal';
 import { ManageSystemUsersModal } from './components/modals/ManageSystemUsersModal';
-import { apiService } from './services/apiService';
+import { apiService, API_BASE_URL } from './services/apiService';
 
 // Modales CRUD Turnos y Horarios
 import { AddEditTimetableModal } from './components/modals/AddEditTimetableModal';
@@ -139,6 +139,17 @@ export default function App() {
   // Notificaciones Toast
   const [toasts, setToasts] = useState<MensajeNotificacion[]>([]);
 
+  // Referencias para evitar bucles infinitos en useEffect y mantener callbacks estables
+  const employeesRef = React.useRef<Empleado[]>(employees);
+  employeesRef.current = employees;
+
+  const isBackendConnectedRef = React.useRef<boolean | null>(isBackendConnected);
+  isBackendConnectedRef.current = isBackendConnected;
+
+  const isSyncingDataRef = React.useRef(false);
+  const [syncingDeviceId, setSyncingDeviceId] = useState<string | null>(null);
+  const [isRefreshingPunchLogs, setIsRefreshingPunchLogs] = useState(false);
+
   const addToast = (
     titulo: string,
     descripcion?: string,
@@ -185,6 +196,9 @@ export default function App() {
 
   // Función Centralizada para Sincronizar todos los datos reales de la Base de Datos MySQL
   const syncAllDataFromBackend = useCallback(async (isManualRetry = false) => {
+    if (isSyncingDataRef.current) return;
+    isSyncingDataRef.current = true;
+
     try {
       const isOnline = await apiService.checkHealth();
       if (!isOnline) {
@@ -192,7 +206,7 @@ export default function App() {
         if (isManualRetry) {
           addToast(
             'Sin Conexión con el Backend',
-            'No se pudo comunicar con el servidor Laravel en http://localhost:8002/api. Verifique que el servicio esté iniciado.',
+            `No se pudo comunicar con el servidor API en ${API_BASE_URL}. Verifique que el servicio esté iniciado.`,
             'error'
           );
         }
@@ -207,11 +221,11 @@ export default function App() {
         apiService.getDepartamentos().catch(() => [] as Departamento[]),
       ]);
 
-      if (dbSedes) {
+      if (dbSedes && dbSedes.length > 0) {
         setSedes(dbSedes);
         storageService.saveSedes(dbSedes);
       }
-      if (dbDeptos) {
+      if (dbDeptos && dbDeptos.length > 0) {
         setDepartamentos(dbDeptos);
         storageService.saveDepartamentos(dbDeptos);
       }
@@ -225,9 +239,9 @@ export default function App() {
         apiService.getAttendanceRules().catch(() => null),
       ]);
 
-      const effectiveEmps = dbEmployees && dbEmployees.length > 0 ? dbEmployees : employees;
+      const effectiveEmps = dbEmployees && dbEmployees.length > 0 ? dbEmployees : employeesRef.current;
 
-      if (dbEmployees) {
+      if (dbEmployees && dbEmployees.length > 0) {
         setEmployees(dbEmployees);
         storageService.saveEmployees(dbEmployees);
         setSelectedEmployee((prev) => {
@@ -237,7 +251,7 @@ export default function App() {
         });
       }
 
-      if (dbDevs) {
+      if (dbDevs && dbDevs.length > 0) {
         setDevices(dbDevs);
         storageService.saveDevices(dbDevs);
       }
@@ -271,38 +285,45 @@ export default function App() {
           'error'
         );
       }
+    } finally {
+      isSyncingDataRef.current = false;
     }
-  }, [employees]);
+  }, []);
 
-  // Hook de Sincronización Inicial y Polling periódico
+  // Bandera de inicialización única
+  const hasInitializedRef = React.useRef(false);
+
+  // Hook de Sincronización Inicial y Polling periódico controlado sin bucles
   useEffect(() => {
-    syncAllDataFromBackend();
+    // Sincronización única inicial al montar
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      syncAllDataFromBackend();
+    }
 
-    const interval = setInterval(() => {
-      apiService.checkHealth().then((online) => {
-        if (online) {
-          if (!isBackendConnected) {
-            syncAllDataFromBackend();
-          } else {
-            // Polling de nuevas marcaciones
-            apiService.getPunchLogs().then((dbLogs) => {
-              if (dbLogs) {
-                const reconciled = reconcileLogsWithEmployees(dbLogs, employees);
-                setPunchLogs(reconciled);
-                storageService.savePunchLogs(reconciled);
-              }
-            }).catch(() => {});
-          }
-        } else {
-          setIsBackendConnected(false);
+    // Polling ligero exclusivo para marcaciones biométricas cada 45 segundos
+    const interval = setInterval(async () => {
+      if (document.hidden) return; // No hacer peticiones si la pestaña no está visible
+      if (isSyncingDataRef.current) return;
+
+      try {
+        const dbLogs = await apiService.getPunchLogs();
+        if (dbLogs && Array.isArray(dbLogs)) {
+          isBackendConnectedRef.current = true;
+          setIsBackendConnected(true);
+          const reconciled = reconcileLogsWithEmployees(dbLogs, employeesRef.current);
+          setPunchLogs(reconciled);
+          storageService.savePunchLogs(reconciled);
         }
-      }).catch(() => {
+      } catch {
+        // En caso de fallo de conexión en marcaciones
+        isBackendConnectedRef.current = false;
         setIsBackendConnected(false);
-      });
-    }, 10000);
+      }
+    }, 45000);
 
     return () => clearInterval(interval);
-  }, [syncAllDataFromBackend, isBackendConnected, employees]);
+  }, [syncAllDataFromBackend]);
 
   const handleSaveSystemUser = async (updatedUser: UsuarioSistema, clave?: string) => {
     // 1. Actualización optimista inmediata en interfaz y caché
@@ -792,31 +813,63 @@ export default function App() {
   };
 
   const handleSyncSingleDevice = async (deviceId: string) => {
+    if (syncingDeviceId) return;
     const dev = devices.find((d) => d.id === deviceId);
-    addToast('Sincronizando Hardware', `Comprobando estado de red de ${dev?.nombre || 'Terminal'} (${dev?.ip || ''})...`, 'info');
+    setSyncingDeviceId(deviceId);
+    addToast('Leyendo Transacciones', `Conectando con terminal biométrico ${dev?.nombre || ''} (${dev?.ip || ''})...`, 'info');
     try {
       const res = await apiService.syncDevice(deviceId);
-      if (res.success) {
-        addToast('Sincronización Exitosa', `${res.message} (${res.logs_synced || 0} marcaciones procesadas)`, 'success');
-        const freshDevs = await apiService.getDevices();
-        setDevices(freshDevs);
-        const freshLogs = await apiService.getPunchLogs();
-        setPunchLogs(freshLogs);
+      if (res && res.success) {
+        addToast('Lectura Exitosa', `${res.message || 'Transacciones sincronizadas'} (${res.logs_synced || 0} marcaciones procesadas)`, 'success');
+        const [freshDevs, freshLogs] = await Promise.all([
+          apiService.getDevices().catch(() => null),
+          apiService.getPunchLogs().catch(() => null),
+        ]);
+        if (freshDevs) {
+          setDevices(freshDevs);
+          storageService.saveDevices(freshDevs);
+        }
+        if (freshLogs) {
+          const reconciled = reconcileLogsWithEmployees(freshLogs, employeesRef.current);
+          setPunchLogs(reconciled);
+          storageService.savePunchLogs(reconciled);
+        }
       } else {
         const updated = devices.map((d) => (d.id === deviceId ? { ...d, estado: 'offline' as const } : d));
         setDevices(updated);
         storageService.saveDevices(updated);
-        addToast('Terminal Fuera de Línea', res.message || `El equipo ${dev?.nombre} no respondió a la comprobación de red.`, 'warning');
+        addToast('Terminal Fuera de Línea', res?.message || `El equipo ${dev?.nombre} no respondió a la comprobación de red.`, 'warning');
       }
     } catch (err: any) {
       const updated = devices.map((d) => (d.id === deviceId ? { ...d, estado: 'offline' as const } : d));
       setDevices(updated);
       storageService.saveDevices(updated);
       addToast(
-        'Terminal Fuera de Línea',
-        `No se pudo establecer conexión con ${dev?.nombre} (${dev?.ip}). El equipo está apagado o desconectado.`,
+        'Terminal Desconectado',
+        `No se pudo leer transacciones de ${dev?.nombre || 'Terminal'} (${dev?.ip || ''}). Equipo inaccesible o tiempo de espera agotado.`,
         'error'
       );
+    } finally {
+      setSyncingDeviceId(null);
+    }
+  };
+
+  const handleRefreshAttendanceLogs = async () => {
+    if (isRefreshingPunchLogs) return;
+    setIsRefreshingPunchLogs(true);
+    addToast('Actualizando Asistencias', 'Leyendo últimas transacciones biométricas de la base de datos...', 'info');
+    try {
+      const freshLogs = await apiService.getPunchLogs();
+      if (freshLogs) {
+        const reconciled = reconcileLogsWithEmployees(freshLogs, employeesRef.current);
+        setPunchLogs(reconciled);
+        storageService.savePunchLogs(reconciled);
+        addToast('Marcaciones Actualizadas', `${freshLogs.length} eventos de asistencia cargados correctamente.`, 'success');
+      }
+    } catch (err: any) {
+      addToast('Aviso', 'No se pudieron actualizar las marcaciones en este momento.', 'warning');
+    } finally {
+      setIsRefreshingPunchLogs(false);
     }
   };
 
@@ -1078,62 +1131,7 @@ export default function App() {
     }
   };
 
-  // ==========================================
-  // Sincronización y Reconciliación de Sedes/Departamentos en Empleados
-  // ==========================================
-  useEffect(() => {
-    if (sedes.length === 0 || employees.length === 0) return;
 
-    const sedeMapById: Record<string, string> = {
-      'Sede Principal San Borja': sedes.find((s) => s.id === 'sed-1')?.nombre || sedes[0].nombre,
-      'Sede Norte Los Olivos': sedes.find((s) => s.id === 'sed-2')?.nombre || sedes[0].nombre,
-      'Sede Sur Arequipa': sedes.find((s) => s.id === 'sed-3')?.nombre || sedes[0].nombre,
-      'Planta Industrial Trujillo': sedes.find((s) => s.id === 'sed-4')?.nombre || sedes[0].nombre,
-    };
-
-    const validSedeNames = new Set(sedes.map((s) => s.nombre));
-    let hasChanges = false;
-
-    const reconciled = employees.map((emp) => {
-      if (!validSedeNames.has(emp.sede)) {
-        hasChanges = true;
-        const newSede = sedeMapById[emp.sede] || sedes[0].nombre;
-        return { ...emp, sede: newSede };
-      }
-      return emp;
-    });
-
-    if (hasChanges) {
-      setEmployees(reconciled);
-      storageService.saveEmployees(reconciled);
-      if (selectedEmployee && !validSedeNames.has(selectedEmployee.sede)) {
-        const fallback = sedeMapById[selectedEmployee.sede] || sedes[0].nombre;
-        setSelectedEmployee({ ...selectedEmployee, sede: fallback });
-      }
-    }
-  }, [sedes]);
-
-  useEffect(() => {
-    if (departamentos.length === 0 || employees.length === 0) return;
-    const validDeptNames = new Set(departamentos.map((d) => d.nombre));
-    let hasChanges = false;
-
-    const reconciled = employees.map((emp) => {
-      if (!validDeptNames.has(emp.departamento)) {
-        hasChanges = true;
-        return { ...emp, departamento: departamentos[0].nombre };
-      }
-      return emp;
-    });
-
-    if (hasChanges) {
-      setEmployees(reconciled);
-      storageService.saveEmployees(reconciled);
-      if (selectedEmployee && !validDeptNames.has(selectedEmployee.departamento)) {
-        setSelectedEmployee({ ...selectedEmployee, departamento: departamentos[0].nombre });
-      }
-    }
-  }, [departamentos]);
 
   // ==========================================
   // CRUD Sedes y Departamentos Organizacionales (con cascada)
@@ -1344,10 +1342,10 @@ export default function App() {
               <span className="material-symbols-outlined text-[20px] text-rose-100">cloud_off</span>
               <div>
                 <p className="font-bold text-white">
-                  Sin conexión con el Servidor Backend / Base de Datos MySQL
+                  Sin conexión con el Servidor Backend / Base de Datos
                 </p>
                 <p className="text-[11px] text-rose-100 font-normal">
-                  No se puede comunicar con la API en <code>http://localhost:8002/api</code>. No se cargarán datos de prueba simulados para evitar confusiones.
+                  No se puede comunicar con la API en <code>{API_BASE_URL}</code>. No se cargarán datos de prueba simulados para evitar confusiones.
                 </p>
               </div>
             </div>
@@ -1385,6 +1383,7 @@ export default function App() {
           {currentView === 'hardware' && (
             <HardwareView
               devices={devices}
+              syncingDeviceId={syncingDeviceId}
               onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
               onOpenEditDeviceModal={handleOpenEditDevice}
               onOpenDeleteDeviceModal={handleOpenDeleteDevice}
@@ -1444,6 +1443,8 @@ export default function App() {
               shifts={shifts}
               shiftAssignments={shiftAssignments}
               attendanceRules={attendanceRules}
+              isRefreshingLogs={isRefreshingPunchLogs}
+              onRefreshLogs={handleRefreshAttendanceLogs}
               onOpenHolidayModal={() => setIsHolidayModalOpen(true)}
               onOpenManageHolidaysModal={() => setIsManageHolidaysModalOpen(true)}
               onOpenExportModal={() => setIsExportPayrollModalOpen(true)}

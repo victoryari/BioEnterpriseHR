@@ -24,6 +24,8 @@ interface AttendanceViewProps {
   shifts?: Turno[];
   shiftAssignments?: AsignacionTurno[];
   attendanceRules?: ReglasAsistencia;
+  isRefreshingLogs?: boolean;
+  onRefreshLogs?: () => void;
   onOpenHolidayModal: () => void;
   onOpenManageHolidaysModal: () => void;
   onOpenExportModal: () => void;
@@ -59,6 +61,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   shifts = [],
   shiftAssignments = [],
   attendanceRules,
+  isRefreshingLogs = false,
+  onRefreshLogs,
   onOpenHolidayModal,
   onOpenManageHolidaysModal,
   onOpenExportModal,
@@ -940,6 +944,20 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          {onRefreshLogs && (
+            <button
+              type="button"
+              disabled={isRefreshingLogs}
+              onClick={onRefreshLogs}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
+              title="Recargar y sincronizar eventos de marcación biométrica"
+            >
+              <span className={`material-symbols-outlined text-[18px] text-blue-600 ${isRefreshingLogs ? 'animate-spin' : ''}`}>
+                sync
+              </span>
+              {isRefreshingLogs ? 'Leyendo Transacciones...' : 'Actualizar Marcaciones'}
+            </button>
+          )}
           {onOpenManualPunchModal && (
             <button
               type="button"

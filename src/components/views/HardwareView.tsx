@@ -3,6 +3,7 @@ import { Dispositivo } from '../../types';
 
 interface HardwareViewProps {
   devices: Dispositivo[];
+  syncingDeviceId?: string | null;
   onOpenAddDeviceModal: () => void;
   onOpenEditDeviceModal: (device: Dispositivo) => void;
   onOpenDeleteDeviceModal: (device: Dispositivo) => void;
@@ -13,6 +14,7 @@ interface HardwareViewProps {
 
 export const HardwareView: React.FC<HardwareViewProps> = ({
   devices,
+  syncingDeviceId,
   onOpenAddDeviceModal,
   onOpenEditDeviceModal,
   onOpenDeleteDeviceModal,
@@ -230,11 +232,18 @@ export const HardwareView: React.FC<HardwareViewProps> = ({
                         </button>
                         <button
                           type="button"
+                          disabled={syncingDeviceId === device.id}
                           onClick={() => onSyncSingleDevice(device.id)}
-                          className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          title="Sincronizar huellas y marcas"
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            syncingDeviceId === device.id
+                              ? 'text-blue-600 bg-blue-50 cursor-wait'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                          title={syncingDeviceId === device.id ? 'Leyendo transacciones biométricas...' : 'Sincronizar huellas y marcas'}
                         >
-                          <span className="material-symbols-outlined text-[18px]">sync</span>
+                          <span className={`material-symbols-outlined text-[18px] ${syncingDeviceId === device.id ? 'animate-spin text-blue-600' : ''}`}>
+                            sync
+                          </span>
                         </button>
                         <button
                           type="button"
