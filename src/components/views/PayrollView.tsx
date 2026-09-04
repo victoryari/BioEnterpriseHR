@@ -385,7 +385,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
   const loadData = async (targetPeriodo = periodo, targetEmpresa = selectedEmpresa) => {
     setLoading(true);
     try {
-      let plas = await apiService.getPlanillas();
+      const plas = await apiService.getPlanillas();
       const bols = await apiService.getBoletas();
       const afps = await apiService.getAFPTasas();
       const emps = await apiService.getEmployees([], []);
@@ -398,31 +398,27 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
       const targetSlug = targetEmpresa.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
       const targetId = `pla-${targetPeriodo}-${targetSlug}`;
 
-      let foundPla = plas.find((p: any) => p.id === targetId) || plas.find((p: any) => p.empresa === targetEmpresa);
-
-      if (!foundPla) {
-        try {
-          const autoRes = await apiService.procesarPlanilla(targetPeriodo, targetEmpresa);
-          if (autoRes.success && autoRes.cabecera) {
-            foundPla = autoRes.cabecera;
-            plas = await apiService.getPlanillas();
-            setPlanillas(plas);
-          }
-        } catch (autoErr) {
-          console.warn('Auto-procesamiento de planilla inicial:', autoErr);
-        }
-      }
+      // Búsqueda ESTRICTA: Solo la planilla que coincida EXACTAMENTE con el periodo y la empresa seleccionada
+      const foundPla = plas.find(
+        (p: any) =>
+          p.id === targetId ||
+          (p.periodo === targetPeriodo && p.empresa === targetEmpresa)
+      );
 
       if (foundPla) {
         const plaDetalle = await apiService.getPlanillaDetalle(foundPla.id);
-        if (plaDetalle && plaDetalle.detalles) {
+        if (plaDetalle && plaDetalle.detalles && plaDetalle.detalles.length > 0) {
           setDetallesPlanilla(enrichDetailsWithAttendance(plaDetalle.detalles));
+        } else {
+          setDetallesPlanilla([]);
         }
       } else {
+        // Si no existe planilla generada para este periodo y empresa, la lista queda vacía
         setDetallesPlanilla([]);
       }
     } catch (e) {
       console.warn('Error al cargar datos de nóminas:', e);
+      setDetallesPlanilla([]);
     } finally {
       setLoading(false);
     }
@@ -532,23 +528,26 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
   const handleProcesarPlanilla = async () => {
     setLoading(true);
     try {
-      let resultDetalles: PlanillaDetalle[] = [];
-      try {
-        const res = await apiService.procesarPlanilla(periodo, selectedEmpresa);
-        if (res.success && res.detalles) {
-          resultDetalles = res.detalles;
+      const res = await apiService.procesarPlanilla(periodo, selectedEmpresa);
+      if (res.success) {
+        const plas = await apiService.getPlanillas();
+        setPlanillas(plas);
+
+        if (res.detalles && res.detalles.length > 0) {
+          const enriched = enrichDetailsWithAttendance(res.detalles);
+          setDetallesPlanilla(enriched);
+        } else if (res.cabecera) {
+          const plaDetalle = await apiService.getPlanillaDetalle(res.cabecera.id);
+          if (plaDetalle && plaDetalle.detalles) {
+            setDetallesPlanilla(enrichDetailsWithAttendance(plaDetalle.detalles));
+          }
+        } else {
+          await loadData(periodo, selectedEmpresa);
         }
-      } catch (e) {
-        console.warn('Fallback a cálculo local con datos de asistencia:', e);
+        alert(`Planilla de ${periodo} procesada y calculada exitosamente para ${selectedEmpresa}.\nSe sincronizaron marcaciones biométricas, horas extras y descuentos.`);
+      } else {
+        alert(res.message || 'No se pudo generar la planilla para el periodo seleccionado.');
       }
-
-      if (resultDetalles.length === 0 && detallesPlanilla.length > 0) {
-        resultDetalles = detallesPlanilla;
-      }
-
-      const enriched = enrichDetailsWithAttendance(resultDetalles);
-      setDetallesPlanilla(enriched);
-      alert(`Planilla de ${periodo} sincronizada en vivo exitosamente:\nSe cruzaron marcaciones biométricas, Horas Extras Aprobadas (25%/35%) y Tardanzas acumuladas.`);
     } catch (err: any) {
       alert(`Error al procesar planilla: ${err.message}`);
     } finally {
@@ -732,9 +731,10 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
     }));
   };
 
-  const currentPlanilla = planillas.find((p) => p.empresa === selectedEmpresa && p.periodo === periodo) || planillas[0];
+  const currentPlanilla = planillas.find((p) => p.empresa === selectedEmpresa && p.periodo === periodo) || null;
 
   const filteredDetallesPlanilla = useMemo(() => {
+    if (!currentPlanilla && detallesPlanilla.length === 0) return [];
     return detallesPlanilla.filter((det) => {
       if ((det as any).empresa) {
         return (det as any).empresa === selectedEmpresa;
@@ -745,18 +745,16 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
       const empEmpresa = emp?.empresa || 'Importaciones Carmelita del Norte S.A.C.';
       return empEmpresa === selectedEmpresa;
     });
-  }, [detallesPlanilla, selectedEmpresa, initialEmployees]);
+  }, [detallesPlanilla, selectedEmpresa, initialEmployees, currentPlanilla]);
 
   const computedPlanillaSummary = useMemo(() => {
-    if (!filteredDetallesPlanilla || filteredDetallesPlanilla.length === 0) {
-      return (
-        currentPlanilla || {
-          total_ingresos: 0,
-          total_descuentos: 0,
-          total_neto_pagar: 0,
-          total_aportes_empleador: 0,
-        }
-      );
+    if (!currentPlanilla || !filteredDetallesPlanilla || filteredDetallesPlanilla.length === 0) {
+      return {
+        total_ingresos: 0,
+        total_descuentos: 0,
+        total_neto_pagar: 0,
+        total_aportes_empleador: 0,
+      };
     }
 
     const totalIngresos = filteredDetallesPlanilla.reduce((sum, d) => sum + Number(d.total_ingresos || 0), 0);
@@ -983,13 +981,19 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
 
           {/* Tabla Detalle Remunerativo por Colaborador */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
               <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
                 Detalle Remunerativo por Colaborador ({filteredDetallesPlanilla.length} registros procesados)
               </h3>
-              <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
-                Estado: PROCESADO DECRETO LEY 728
-              </span>
+              {filteredDetallesPlanilla.length > 0 && currentPlanilla ? (
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                  Estado: {currentPlanilla.estado || 'PROCESADO DECRETO LEY 728'}
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                  Estado: PENDIENTE DE GENERACIÓN
+                </span>
+              )}
             </div>
 
             <div className="overflow-x-auto">
@@ -1052,8 +1056,29 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
                     })
                   ) : (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400 font-sans">
-                        No hay detalles de planilla para el periodo y empresa seleccionados. Haga clic en "Sincronizar Marcaciones & Calcular".
+                      <td colSpan={7} className="p-12 text-center font-sans">
+                        <div className="flex flex-col items-center justify-center text-slate-400 space-y-2">
+                          <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-1">
+                            <span className="material-symbols-outlined text-2xl">receipt_long</span>
+                          </div>
+                          <p className="font-bold text-sm text-slate-700">
+                            No se ha generado la planilla para el periodo {periodo}
+                          </p>
+                          <p className="text-xs text-slate-400 max-w-md">
+                            No existen registros procesados para <strong>{selectedEmpresa}</strong> en este mes. Presione <strong>"Calcular Planilla en Vivo"</strong> o <strong>"Sincronizar Marcaciones & Calcular"</strong> para procesar la nómina.
+                          </p>
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={handleProcesarPlanilla}
+                              disabled={loading}
+                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">calculate</span>
+                              {loading ? 'Calculando Planilla...' : `Calcular Planilla de ${periodo}`}
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   )}
