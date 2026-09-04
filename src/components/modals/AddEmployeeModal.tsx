@@ -49,11 +49,11 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [biometriaRostro, setBiometriaRostro] = useState(false);
 
   // Tab 4: Nómina & CTS
-  const [sueldoBase, setSueldoBase] = useState('2500.00');
+  const [sueldoBase, setSueldoBase] = useState('1025.00');
   const [regimenPrevisional, setRegimenPrevisional] = useState('AFP Integra');
   const [tipoComisionAfp, setTipoComisionAfp] = useState<'Flujo' | 'Mixta'>('Flujo');
   const [cuspp, setCuspp] = useState('');
-  const [tieneAsignacionFamiliar, setTieneAsignacionFamiliar] = useState(true);
+  const [tieneAsignacionFamiliar, setTieneAsignacionFamiliar] = useState(false);
   const [bancoSueldo, setBancoSueldo] = useState('BCP');
   const [numeroCuentaBanco, setNumeroCuentaBanco] = useState('');
   const [cci, setCci] = useState('');
@@ -459,11 +459,11 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase">N° Cuenta Sueldo</label>
-                      <input type="text" value={numeroCuentaBanco} onChange={(e) => setNumeroCuentaBanco(e.target.value)} placeholder="191-45678901-0-12" className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none" />
+                      <input type="text" value={numeroCuentaBanco} onChange={(e) => setNumeroCuentaBanco(e.target.value)} placeholder="Ej. 191-00000000-0-00 (Opcional)" className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">CCI</label>
-                      <input type="text" value={cci} onChange={(e) => setCci(e.target.value)} placeholder="00219100456789010123" className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none" />
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase">CCI (Interbancario)</label>
+                      <input type="text" value={cci} onChange={(e) => setCci(e.target.value)} placeholder="Ej. 00219100000000000000 (Opcional)" className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none" />
                     </div>
                   </div>
                 </div>
@@ -483,7 +483,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase">N° Cuenta CTS</label>
-                      <input type="text" value={numeroCuentaCts} onChange={(e) => setNumeroCuentaCts(e.target.value)} placeholder="0011-0123-4567890123" className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none" />
+                      <input type="text" value={numeroCuentaCts} onChange={(e) => setNumeroCuentaCts(e.target.value)} placeholder="Ej. 0011-0000-0000000000 (Opcional)" className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase">Moneda CTS</label>

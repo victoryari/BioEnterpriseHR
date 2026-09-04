@@ -6,13 +6,9 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
-        env('FRONTEND_URL', 'http://localhost:8080'),
-        env('FRONTEND_URL_MOBILE', 'http://10.0.2.2:8080'),
-        'http://192.168.10.188:8080',
-    ],
+    'allowed_origins' => ['*'],
 
-    'allowed_origins_patterns' => ['#^http://localhost:\d+$#', '#^http://192\.168\.10\.188:\d+$#'],
+    'allowed_origins_patterns' => [],
 
     'allowed_headers' => ['*'],
 
@@ -20,6 +16,6 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => true,
+    'supports_credentials' => false,
 
 ];

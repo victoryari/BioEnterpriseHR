@@ -13,33 +13,23 @@ import {
   UsuarioSistema,
 } from '../types';
 import {
-  EMPLEADOS_INICIALES,
-  DISPOSITIVOS_INICIALES,
-  MARCACIONES_INICIALES,
-  SOLICITUDES_PERMISO_INICIALES,
   FERIADOS_PERU_2026,
-  HORARIOS_INICIALES,
-  TURNOS_INICIALES,
-  ASIGNACIONES_TURNOS_INICIALES,
   REGLAS_ASISTENCIA_DEFAULT,
-  SEDES_INICIALES,
-  DEPARTAMENTOS_INICIALES,
-  USUARIOS_SISTEMA_INICIALES,
 } from '../data/mockData';
 
 const KEYS = {
-  EMPLOYEES: 'bioenterprise_employees_v1',
-  DEVICES: 'bioenterprise_devices_v1',
-  PUNCH_LOGS: 'bioenterprise_punch_logs_v1',
-  LEAVE_REQUESTS: 'bioenterprise_leave_requests_v1',
-  HOLIDAYS: 'bioenterprise_holidays_v1',
-  TIMETABLES: 'bioenterprise_timetables_v1',
-  SHIFTS: 'bioenterprise_shifts_v1',
-  SHIFT_ASSIGNMENTS: 'bioenterprise_shift_assignments_v1',
-  ATTENDANCE_RULES: 'bioenterprise_attendance_rules_v1',
-  SEDES: 'bioenterprise_sedes_v1',
-  DEPARTAMENTOS: 'bioenterprise_departamentos_v1',
-  SYSTEM_USERS: 'bioenterprise_system_users_v1',
+  EMPLOYEES: 'bioenterprise_employees_v2',
+  DEVICES: 'bioenterprise_devices_v2',
+  PUNCH_LOGS: 'bioenterprise_punch_logs_v2',
+  LEAVE_REQUESTS: 'bioenterprise_leave_requests_v2',
+  HOLIDAYS: 'bioenterprise_holidays_v2',
+  TIMETABLES: 'bioenterprise_timetables_v2',
+  SHIFTS: 'bioenterprise_shifts_v2',
+  SHIFT_ASSIGNMENTS: 'bioenterprise_shift_assignments_v2',
+  ATTENDANCE_RULES: 'bioenterprise_attendance_rules_v2',
+  SEDES: 'bioenterprise_sedes_v2',
+  DEPARTAMENTOS: 'bioenterprise_departamentos_v2',
+  SYSTEM_USERS: 'bioenterprise_system_users_v2',
 };
 
 export const storageService = {
@@ -47,19 +37,9 @@ export const storageService = {
   getEmployees: (): Empleado[] => {
     try {
       const data = localStorage.getItem(KEYS.EMPLOYEES);
-      const list: Empleado[] = data ? JSON.parse(data) : EMPLEADOS_INICIALES;
-      return list.map((emp, idx) => ({
-        ...emp,
-        empresa:
-          emp.empresa ||
-          (idx % 3 === 0
-            ? 'Importaciones Carmelita del Norte S.A.C.'
-            : idx % 3 === 1
-            ? 'Grupo Chemmer Perú S.A.C.'
-            : 'León Plast S.A.C.'),
-      }));
+      return data ? JSON.parse(data) : [];
     } catch {
-      return EMPLEADOS_INICIALES;
+      return [];
     }
   },
   saveEmployees: (employees: Empleado[]): void => {
@@ -74,9 +54,9 @@ export const storageService = {
   getDevices: (): Dispositivo[] => {
     try {
       const data = localStorage.getItem(KEYS.DEVICES);
-      return data ? JSON.parse(data) : DISPOSITIVOS_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return DISPOSITIVOS_INICIALES;
+      return [];
     }
   },
   saveDevices: (devices: Dispositivo[]): void => {
@@ -91,9 +71,9 @@ export const storageService = {
   getPunchLogs: (): MarcacionAsistencia[] => {
     try {
       const data = localStorage.getItem(KEYS.PUNCH_LOGS);
-      return data ? JSON.parse(data) : MARCACIONES_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return MARCACIONES_INICIALES;
+      return [];
     }
   },
   savePunchLogs: (logs: MarcacionAsistencia[]): void => {
@@ -108,9 +88,9 @@ export const storageService = {
   getLeaveRequests: (): SolicitudPermiso[] => {
     try {
       const data = localStorage.getItem(KEYS.LEAVE_REQUESTS);
-      return data ? JSON.parse(data) : SOLICITUDES_PERMISO_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return SOLICITUDES_PERMISO_INICIALES;
+      return [];
     }
   },
   saveLeaveRequests: (requests: SolicitudPermiso[]): void => {
@@ -142,9 +122,9 @@ export const storageService = {
   getTimetables: (): HorarioTrabajo[] => {
     try {
       const data = localStorage.getItem(KEYS.TIMETABLES);
-      return data ? JSON.parse(data) : HORARIOS_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return HORARIOS_INICIALES;
+      return [];
     }
   },
   saveTimetables: (timetables: HorarioTrabajo[]): void => {
@@ -159,9 +139,9 @@ export const storageService = {
   getShifts: (): Turno[] => {
     try {
       const data = localStorage.getItem(KEYS.SHIFTS);
-      return data ? JSON.parse(data) : TURNOS_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return TURNOS_INICIALES;
+      return [];
     }
   },
   saveShifts: (shifts: Turno[]): void => {
@@ -176,9 +156,9 @@ export const storageService = {
   getShiftAssignments: (): AsignacionTurno[] => {
     try {
       const data = localStorage.getItem(KEYS.SHIFT_ASSIGNMENTS);
-      return data ? JSON.parse(data) : ASIGNACIONES_TURNOS_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return ASIGNACIONES_TURNOS_INICIALES;
+      return [];
     }
   },
   saveShiftAssignments: (assignments: AsignacionTurno[]): void => {
@@ -210,9 +190,9 @@ export const storageService = {
   getSedes: (): Sede[] => {
     try {
       const data = localStorage.getItem(KEYS.SEDES);
-      return data ? JSON.parse(data) : SEDES_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return SEDES_INICIALES;
+      return [];
     }
   },
   saveSedes: (sedes: Sede[]): void => {
@@ -227,9 +207,9 @@ export const storageService = {
   getDepartamentos: (): Departamento[] => {
     try {
       const data = localStorage.getItem(KEYS.DEPARTAMENTOS);
-      return data ? JSON.parse(data) : DEPARTAMENTOS_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return DEPARTAMENTOS_INICIALES;
+      return [];
     }
   },
   saveDepartamentos: (departamentos: Departamento[]): void => {
@@ -244,9 +224,9 @@ export const storageService = {
   getSystemUsers: (): UsuarioSistema[] => {
     try {
       const data = localStorage.getItem(KEYS.SYSTEM_USERS);
-      return data ? JSON.parse(data) : USUARIOS_SISTEMA_INICIALES;
+      return data ? JSON.parse(data) : [];
     } catch {
-      return USUARIOS_SISTEMA_INICIALES;
+      return [];
     }
   },
   saveSystemUsers: (users: UsuarioSistema[]): void => {
@@ -259,14 +239,14 @@ export const storageService = {
 
   getCurrentAdminId: (): string => {
     try {
-      return localStorage.getItem('bioenterprise_current_admin_id_v1') || 'user-1';
+      return localStorage.getItem('bioenterprise_current_admin_id_v2') || '';
     } catch {
-      return 'user-1';
+      return '';
     }
   },
   saveCurrentAdminId: (id: string): void => {
     try {
-      localStorage.setItem('bioenterprise_current_admin_id_v1', id);
+      localStorage.setItem('bioenterprise_current_admin_id_v2', id);
     } catch (e) {
       console.error('Error al guardar currentAdminId en localStorage', e);
     }

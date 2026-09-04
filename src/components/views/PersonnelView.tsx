@@ -187,7 +187,22 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredEmployees.map((emp) => {
+                  {filteredEmployees.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400">
+                        <span className="material-symbols-outlined text-4xl mb-2 text-slate-300 block">
+                          group_off
+                        </span>
+                        <p className="text-xs font-semibold text-slate-700">No se encontraron colaboradores registrados</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {search || siteFilter !== 'all' || deptFilter !== 'all' || companyFilter !== 'all' || statusFilter !== 'all'
+                            ? 'Pruebe a cambiar los filtros de búsqueda.'
+                            : 'No hay colaboradores en la base de datos o el backend no está conectado.'}
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredEmployees.map((emp) => {
                     const isSelected = activeEmployee?.id === emp.id;
                     return (
                       <tr
@@ -342,7 +357,7 @@ export const PersonnelView: React.FC<PersonnelViewProps> = ({
                         </td>
                       </tr>
                     );
-                  })}
+                  }))}
                 </tbody>
               </table>
             </div>

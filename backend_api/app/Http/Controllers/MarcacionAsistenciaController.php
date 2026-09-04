@@ -25,6 +25,28 @@ class MarcacionAsistenciaController extends Controller
         }
 
         $marcaciones = $query->orderBy('fecha_hora', 'desc')->limit(1000)->get();
+
+        // Reconciliación automática con colaboradores registrados por PIN o DNI
+        $empleados = \App\Models\Empleado::all();
+        $marcaciones->transform(function ($m) use ($empleados) {
+            if (empty($m->empleado_id) || str_starts_with($m->nombre_empleado, 'Usuario PIN')) {
+                $emp = $empleados->first(function ($e) use ($m) {
+                    return (!empty($m->empleado_id) && $e->id == $m->empleado_id) ||
+                           (!empty($m->pin) && ($e->pin == $m->pin || $e->numero_documento == $m->pin));
+                });
+                if ($emp) {
+                    $m->empleado_id = $emp->id;
+                    $m->nombre_empleado = $emp->nombre_completo;
+                    // Actualizar silenciosamente en MySQL para persistencia
+                    \App\Models\MarcacionAsistencia::where('id', $m->id)->update([
+                        'empleado_id' => $emp->id,
+                        'nombre_empleado' => $emp->nombre_completo,
+                    ]);
+                }
+            }
+            return $m;
+        });
+
         return response()->json($marcaciones);
     }
 

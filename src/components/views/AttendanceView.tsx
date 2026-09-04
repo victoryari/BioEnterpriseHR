@@ -50,57 +50,6 @@ const MESES = [
 
 const AÑOS = [2024, 2025, 2026, 2027, 2028, 2029, 2030];
 
-export const INITIAL_OVERTIME_REQUESTS: SolicitudHoraExtra[] = [
-  {
-    id: 'he-1',
-    empleadoId: 'emp-1',
-    nombreEmpleado: 'Victor Antonio Mamani Yaringaño',
-    documentoEmpleado: '40869749',
-    empresa: 'Grupo Chemmer Perú S.A.C.',
-    sede: 'Sede Principal Zarate',
-    fecha: '2026-08-31',
-    horaSalidaProgramada: '17:30',
-    horaSalidaMarcada: '19:45',
-    minutosDetectados: 135,
-    minutosAprobados: 120,
-    tipoHe: '25%',
-    estado: 'Pendiente',
-  },
-  {
-    id: 'he-2',
-    empleadoId: 'emp-2',
-    nombreEmpleado: 'Carlos Gomez Carmelita',
-    documentoEmpleado: '10234567',
-    empresa: 'Importaciones Carmelita del Norte S.A.C.',
-    sede: 'Sede Principal Zarate',
-    fecha: '2026-08-28',
-    horaSalidaProgramada: '17:30',
-    horaSalidaMarcada: '20:00',
-    minutosDetectados: 150,
-    minutosAprobados: 150,
-    tipoHe: '35%',
-    estado: 'Aprobado',
-    aprobadoPor: 'RRHH Carmelita',
-  },
-  {
-    id: 'he-3',
-    empleadoId: 'emp-3',
-    nombreEmpleado: 'Luis Ramirez',
-    documentoEmpleado: '47851239',
-    empresa: 'León Plast S.A.C.',
-    sede: 'Sede Sur Arequipa',
-    fecha: '2026-08-27',
-    horaSalidaProgramada: '17:30',
-    horaSalidaMarcada: '18:15',
-    minutosDetectados: 45,
-    minutosAprobados: 0,
-    tipoHe: '25%',
-    estado: 'Rechazado',
-    motivoRechazo: 'Permanencia voluntaria en instalaciones sin autorización previa de jefatura.',
-    aprobadoPor: 'RRHH Carmelita',
-  },
-];
-
 export const AttendanceView: React.FC<AttendanceViewProps> = ({
   punchLogs,
   employees,
@@ -120,11 +69,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 }) => {
   // Pestaña activa: 'calendar' | 'events' | 'anomalies' | 'overtime'
   const [subView, setSubView] = useState<'calendar' | 'events' | 'anomalies' | 'overtime'>('calendar');
-  const [overtimeList, setOvertimeList] = useState<SolicitudHoraExtra[]>(INITIAL_OVERTIME_REQUESTS);
+  const [overtimeList, setOvertimeList] = useState<SolicitudHoraExtra[]>([]);
   const [isOvertimeModalOpen, setIsOvertimeModalOpen] = useState(false);
   const [selectedOvertimeItem, setSelectedOvertimeItem] = useState<SolicitudHoraExtra | null>(null);
   const [overtimeFilter, setOvertimeFilter] = useState<string>('all');
   const [overtimeSearch, setOvertimeSearch] = useState<string>('');
+  const [overtimeMonth, setOvertimeMonth] = useState<number | 'all'>(() => new Date().getMonth());
+  const [overtimeYear, setOvertimeYear] = useState<number>(() => new Date().getFullYear());
 
   // Estados de Edición, Eliminación y Bitácora de Marcaciones
   const [editingPunch, setEditingPunch] = useState<MarcacionAsistencia | null>(null);
@@ -175,20 +126,64 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   const [selectedMethod, setSelectedMethod] = useState<string>('all');
   const [filterSearch, setFilterSearch] = useState<string>('');
 
-  // Helper para enriquecer información del empleado
-  const getEmpInfo = (empleadoId: string, nombreEmpleado: string) => {
-    const emp = employees.find(
-      (e) =>
-        e.id === empleadoId ||
-        e.nombre.toLowerCase() === nombreEmpleado.toLowerCase()
-    );
+  // Estados de Filtros para la pestaña de Incidencias & Omisiones de Marcación
+  const [anomalyDate, setAnomalyDate] = useState<string>(todayStr);
+  const [anomalyCompany, setAnomalyCompany] = useState<string>('all');
+  const [anomalyTypeFilter, setAnomalyTypeFilter] = useState<'all' | 'INASISTENCIA' | 'OMISION_SALIDA' | 'OMISION_ENTRADA'>('all');
+
+  // Helper robusto para enriquecer y resolver la información del colaborador
+  const getEmpInfo = (empleadoId?: string, nombreEmpleado?: string, pin?: string) => {
+    let emp: Empleado | undefined = undefined;
+
+    // 1. Búsqueda por ID único
+    if (empleadoId) {
+      emp = employees.find((e) => e.id === empleadoId);
+    }
+
+    // 2. Búsqueda por PIN o DNI directo
+    if (!emp && (pin || empleadoId)) {
+      const queryPin = (pin || empleadoId || '').trim();
+      if (queryPin) {
+        emp = employees.find(
+          (e) =>
+            (e.pin && e.pin.trim() === queryPin) ||
+            (e.numeroDocumento && e.numeroDocumento.trim() === queryPin)
+        );
+      }
+    }
+
+    // 3. Búsqueda por PIN numérico extraído de 'Usuario PIN XXXXX'
+    if (!emp && nombreEmpleado) {
+      const matchPin = nombreEmpleado.match(/\d+/);
+      if (matchPin) {
+        const extractedPin = matchPin[0];
+        emp = employees.find(
+          (e) =>
+            (e.pin && e.pin.trim() === extractedPin) ||
+            (e.numeroDocumento && e.numeroDocumento.trim() === extractedPin)
+        );
+      }
+    }
+
+    // 4. Búsqueda por coincidencia de nombre exacto o insensible a mayúsculas
+    if (!emp && nombreEmpleado && !nombreEmpleado.toLowerCase().startsWith('usuario pin')) {
+      emp = employees.find(
+        (e) => e.nombre && e.nombre.toLowerCase().trim() === nombreEmpleado.toLowerCase().trim()
+      );
+    }
+
+    const resolvedNombre = emp?.nombre || nombreEmpleado || (pin ? `Usuario PIN ${pin}` : 'Colaborador');
+    const resolvedDoc = emp?.numeroDocumento || emp?.pin || pin || (nombreEmpleado ? nombreEmpleado.match(/\d+/)?.[0] : '') || '---';
+
     return {
+      emp,
+      nombre: resolvedNombre,
       empresa: emp?.empresa || 'Importaciones Carmelita del Norte S.A.C.',
       departamento: emp?.departamento || 'Operaciones',
       sede: emp?.sede || 'Sede Principal San Borja',
       foto: emp?.foto || '',
       cargo: emp?.cargo || 'Colaborador',
-      doc: emp?.numeroDocumento || emp?.pin || '---',
+      doc: resolvedDoc,
     };
   };
 
@@ -403,8 +398,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       ? ((puntualCount / totalEmployeesCount) * 100).toFixed(1)
       : '100.0';
 
-  // Algoritmo de Detección de Anomalías e Incidencias (Inasistencias, Omisión de Entrada, Omisión de Salida)
-  const incidenciasDiarias = useMemo(() => {
+  // Algoritmo de Detección Inteligente de Anomalías e Incidencias (Inasistencias, Omisión de Entrada, Omisión de Salida)
+  const allIncidenciasDiarias = useMemo(() => {
     const list: Array<{
       id: string;
       empleadoId: string;
@@ -419,46 +414,146 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       horaSalidaRegistrada?: string;
     }> = [];
 
-    const targetDate = quickDateFilter === 'today' ? todayStr : quickDateFilter === 'yesterday' ? yesterdayStr : todayStr;
+    const targetDate = anomalyDate || todayStr;
     const activeEmps = employees.filter((e) => e.estado === 'Activo');
 
-    for (const emp of activeEmps) {
-      const empInfo = getEmpInfo(emp.id, emp.nombre);
-      if (selectedCompany !== 'all' && empInfo.empresa !== selectedCompany) continue;
+    const now = new Date();
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+    const isToday = targetDate === todayStr;
+    const isFuture = targetDate > todayStr;
 
-      const dayPunches = punchLogs.filter(
-        (p) => (p.empleadoId === emp.id || p.nombreEmpleado.toLowerCase() === emp.nombre.toLowerCase()) && p.fecha === targetDate
+    // No generar anomalías para fechas futuras
+    if (isFuture) {
+      return [];
+    }
+
+    for (const emp of activeEmps) {
+      const empInfo = getEmpInfo(emp.id, emp.nombre, emp.pin);
+      if (anomalyCompany !== 'all' && empInfo.empresa !== anomalyCompany) continue;
+
+      // Obtener horario programado para el colaborador en ese día de la semana
+      let scheduledEntry = '08:30';
+      let scheduledExit = '17:30';
+      let entryWindowUntil = '12:00'; // Límite máximo configurado en el horario para registrar ingreso
+      let toleranceMin = 15;
+
+      const dNum = new Date(targetDate + 'T00:00:00').getDay();
+      const diaSemanaNum = dNum === 0 ? 7 : dNum;
+      const empShiftAss = shiftAssignments.find(
+        (sa) => sa.empleadoId === emp.id || sa.empleadoId === empInfo.doc
       );
+
+      if (empShiftAss && shifts.length > 0 && timetables.length > 0) {
+        const currentShift = shifts.find((s) => s.id === empShiftAss.turnoId);
+        if (currentShift && currentShift.dias) {
+          const diaConfig = currentShift.dias.find((d) => d.diaSemana === diaSemanaNum);
+          if (diaConfig && diaConfig.horarioId) {
+            const tt = timetables.find((t) => t.id === diaConfig.horarioId);
+            if (tt) {
+              scheduledEntry = tt.horaEntrada;
+              scheduledExit = tt.horaSalida;
+              toleranceMin = tt.minutosTolerancia ?? 15;
+              if (tt.ventanaEntradaHasta) {
+                entryWindowUntil = tt.ventanaEntradaHasta;
+              }
+            }
+          }
+        }
+      }
+
+      const [entryH, entryM] = scheduledEntry.split(':').map(Number);
+      const scheduledEntryMin = (entryH || 8) * 60 + (entryM || 30);
+
+      const [exitH, exitM] = scheduledExit.split(':').map(Number);
+      const scheduledExitMin = (exitH || 17) * 60 + (exitM || 30);
+
+      const [limitH, limitM] = entryWindowUntil.split(':').map(Number);
+      const entryLimitMin = (limitH || 12) * 60 + (limitM || 0);
+
+      const dayPunches = punchLogs.filter((p) => {
+        if (p.fecha !== targetDate || p.estado === 'Anulado por RRHH') return false;
+        const pInfo = getEmpInfo(p.empleadoId, p.nombreEmpleado, p.pin);
+        return (
+          pInfo.emp?.id === emp.id ||
+          p.empleadoId === emp.id ||
+          p.nombreEmpleado.toLowerCase() === emp.nombre.toLowerCase() ||
+          (p.pin && (p.pin === emp.pin || p.pin === emp.numeroDocumento))
+        );
+      });
 
       const entries = dayPunches.filter((p) => p.tipo === 'Entrada');
       const exits = dayPunches.filter((p) => p.tipo === 'Salida');
 
+      // CASO 1: Sin marcaciones en todo el día
       if (dayPunches.length === 0) {
-        list.push({
-          id: `inc-${emp.id}-${targetDate}`,
-          empleadoId: emp.id,
-          nombreEmpleado: emp.nombre,
-          empresa: empInfo.empresa,
-          cargo: empInfo.cargo,
-          doc: empInfo.doc,
-          fecha: targetDate,
-          tipoIncidencia: 'INASISTENCIA',
-          detalle: 'Sin registro de marcaciones en todo el día laborable.',
-        });
-      } else if (entries.length > 0 && exits.length === 0) {
-        list.push({
-          id: `inc-${emp.id}-${targetDate}`,
-          empleadoId: emp.id,
-          nombreEmpleado: emp.nombre,
-          empresa: empInfo.empresa,
-          cargo: empInfo.cargo,
-          doc: empInfo.doc,
-          fecha: targetDate,
-          tipoIncidencia: 'OMISION_SALIDA',
-          detalle: `Falta marcado de salida. Registró ingreso a las ${entries[0].hora}.`,
-          horaEntradaRegistrada: entries[0].hora,
-        });
-      } else if (entries.length === 0 && exits.length > 0) {
+        if (isToday) {
+          // Si es hoy, SOLO se considera Falta/Inasistencia si la hora actual ya superó el límite máximo configurado en su horario para registrar ingreso (ventanaEntradaHasta)
+          if (currentTotalMinutes > entryLimitMin) {
+            list.push({
+              id: `inc-${emp.id}-${targetDate}`,
+              empleadoId: emp.id,
+              nombreEmpleado: emp.nombre,
+              empresa: empInfo.empresa,
+              cargo: empInfo.cargo,
+              doc: empInfo.doc,
+              fecha: targetDate,
+              tipoIncidencia: 'INASISTENCIA',
+              detalle: `Sin registro de ingreso. Excedió el límite máximo configurado en su horario para marcar entrada (${entryWindowUntil}).`,
+            });
+          }
+          // Si la hora actual aún no supera el límite de ingreso: Aún está dentro de la ventana de llegada/tolerancia, no se marca como inasistencia definitiva.
+        } else {
+          // Día pasado cerrado: inasistencia confirmada
+          list.push({
+            id: `inc-${emp.id}-${targetDate}`,
+            empleadoId: emp.id,
+            nombreEmpleado: emp.nombre,
+            empresa: empInfo.empresa,
+            cargo: empInfo.cargo,
+            doc: empInfo.doc,
+            fecha: targetDate,
+            tipoIncidencia: 'INASISTENCIA',
+            detalle: 'Sin registro de marcaciones en todo el día laborable.',
+          });
+        }
+      }
+      // CASO 2: Registró Entrada pero NO registra Salida
+      else if (entries.length > 0 && exits.length === 0) {
+        if (isToday) {
+          // Si es hoy, SOLO se considera Omisión de Salida si la hora actual ya superó la hora de salida del turno (+ margen de 30 min)
+          if (currentTotalMinutes > scheduledExitMin + 30) {
+            list.push({
+              id: `inc-${emp.id}-${targetDate}`,
+              empleadoId: emp.id,
+              nombreEmpleado: emp.nombre,
+              empresa: empInfo.empresa,
+              cargo: empInfo.cargo,
+              doc: empInfo.doc,
+              fecha: targetDate,
+              tipoIncidencia: 'OMISION_SALIDA',
+              detalle: `Jornada concluida (Salida programada: ${scheduledExit}). Registró ingreso a las ${entries[0].hora}, pero omitió registrar su salida.`,
+              horaEntradaRegistrada: entries[0].hora,
+            });
+          }
+          // Si currentTotalMinutes <= scheduledExitMin + 30 -> El colaborador se encuentra laborando activamente dentro de su turno. NO es omisión.
+        } else {
+          // Día pasado cerrado: efectivamente omitió su salida
+          list.push({
+            id: `inc-${emp.id}-${targetDate}`,
+            empleadoId: emp.id,
+            nombreEmpleado: emp.nombre,
+            empresa: empInfo.empresa,
+            cargo: empInfo.cargo,
+            doc: empInfo.doc,
+            fecha: targetDate,
+            tipoIncidencia: 'OMISION_SALIDA',
+            detalle: `Falta marcado de salida. Registró ingreso a las ${entries[0].hora}.`,
+            horaEntradaRegistrada: entries[0].hora,
+          });
+        }
+      }
+      // CASO 3: Registró Salida pero NO registra Entrada
+      else if (entries.length === 0 && exits.length > 0) {
         list.push({
           id: `inc-${emp.id}-${targetDate}`,
           empleadoId: emp.id,
@@ -468,14 +563,19 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
           doc: empInfo.doc,
           fecha: targetDate,
           tipoIncidencia: 'OMISION_ENTRADA',
-          detalle: `Falta marcado de ingreso. Registró salida a las ${exits[0].hora}.`,
+          detalle: `Falta marcado de ingreso. Registró salida a las ${exits[0].hora}, pero no cuenta con registro de ingreso.`,
           horaSalidaRegistrada: exits[0].hora,
         });
       }
     }
 
     return list;
-  }, [employees, punchLogs, quickDateFilter, todayStr, yesterdayStr, selectedCompany]);
+  }, [employees, punchLogs, anomalyDate, anomalyCompany, todayStr, shiftAssignments, shifts, timetables]);
+
+  const incidenciasDiarias = useMemo(() => {
+    if (anomalyTypeFilter === 'all') return allIncidenciasDiarias;
+    return allIncidenciasDiarias.filter((inc) => inc.tipoIncidencia === anomalyTypeFilter);
+  }, [allIncidenciasDiarias, anomalyTypeFilter]);
 
   // Solicitudes y Registros de Horas Extras derivados dinámicamente de punchLogs + Estado de Aprobación
   const resolvedOvertimeList = useMemo(() => {
@@ -484,7 +584,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     punchLogs.forEach((log) => {
       if (log.tipo !== 'Salida' || log.estado === 'Anulado por RRHH') return;
 
-      const empInfo = getEmpInfo(log.empleadoId, log.nombreEmpleado);
+      const empInfo = getEmpInfo(log.empleadoId, log.nombreEmpleado, log.pin);
 
       // Obtener horario programado de salida para el colaborador en ese día de la semana
       let scheduledExit = '17:30';
@@ -515,7 +615,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
       // Si el exceso alcanza o supera el umbral de horas extras (ej. 30 min)
       if (diffMin >= umbralMinimosHE) {
-        const requestId = `he-${log.fecha}-${log.empleadoId}`;
+        const requestId = `he-${log.fecha}-${empInfo.emp?.id || log.empleadoId || log.pin}`;
 
         // Verificar si ya existe una resolución registrada manualmente (aprobada/rechazada/compensada)
         const existing = overtimeList.find(
@@ -523,14 +623,16 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             o.id === requestId ||
             (o.fecha === log.fecha &&
               (o.empleadoId === log.empleadoId ||
+                o.empleadoId === empInfo.emp?.id ||
                 o.documentoEmpleado === empInfo.doc ||
+                o.nombreEmpleado.toLowerCase() === empInfo.nombre.toLowerCase() ||
                 o.nombreEmpleado.toLowerCase() === log.nombreEmpleado.toLowerCase()))
         );
 
         dynamicOvertimePunches.push({
           id: existing ? existing.id : requestId,
-          empleadoId: log.empleadoId,
-          nombreEmpleado: log.nombreEmpleado,
+          empleadoId: empInfo.emp?.id || log.empleadoId,
+          nombreEmpleado: empInfo.nombre,
           documentoEmpleado: empInfo.doc,
           empresa: empInfo.empresa,
           sede: empInfo.sede,
@@ -548,16 +650,35 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       }
     });
 
-    // Unir con aquellas solicitudes estáticas/previas que no provengan de los punchLogs dinámicos
-    const dynamicKeys = new Set(
-      dynamicOvertimePunches.map((d) => `${d.fecha}-${d.documentoEmpleado || d.nombreEmpleado}`)
-    );
-    const extraInitial = overtimeList.filter(
-      (o) => !dynamicKeys.has(`${o.fecha}-${o.documentoEmpleado || o.nombreEmpleado}`)
-    );
-
-    return [...dynamicOvertimePunches, ...extraInitial].sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+    return dynamicOvertimePunches.sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
   }, [punchLogs, overtimeList, shiftAssignments, shifts, timetables, employees, attendanceRules]);
+
+  // Lista filtrada de Horas Extras por Mes, Año, Estado y Búsqueda
+  const filteredOvertimeList = useMemo(() => {
+    return resolvedOvertimeList.filter((he) => {
+      if (overtimeMonth !== 'all') {
+        const prefix = `${overtimeYear}-${String(Number(overtimeMonth) + 1).padStart(2, '0')}`;
+        if (!he.fecha.startsWith(prefix)) return false;
+      } else {
+        if (!he.fecha.startsWith(String(overtimeYear))) return false;
+      }
+
+      if (overtimeFilter !== 'all' && he.estado !== overtimeFilter) {
+        return false;
+      }
+
+      if (overtimeSearch.trim()) {
+        const q = overtimeSearch.toLowerCase();
+        const matches =
+          he.nombreEmpleado.toLowerCase().includes(q) ||
+          (he.documentoEmpleado || '').includes(q) ||
+          he.fecha.includes(q);
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [resolvedOvertimeList, overtimeMonth, overtimeYear, overtimeFilter, overtimeSearch]);
 
   const daysInMonth = Array.from({ length: daysCount }, (_, i) => {
     const dayNum = i + 1;
@@ -574,8 +695,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     const isFuture = dateStr > systemTodayStr;
 
     // Obtener marcaciones reales registradas en MySQL para este día específico
-    const dayEntries = punchLogs.filter((p) => p.fecha === dateStr && p.tipo === 'Entrada');
-    const hasData = dayEntries.length > 0;
+    const dayAllPunches = punchLogs.filter((p) => p.fecha === dateStr);
+    const dayEntries = dayAllPunches.filter((p) => p.tipo === 'Entrada');
+    const hasData = dayAllPunches.length > 0;
 
     let late = 0;
     let onTime = 0;
@@ -629,7 +751,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   // Filtrado reactivo de marcaciones
   const filteredEvents = useMemo(() => {
     const rawFiltered = punchLogs.filter((log) => {
-      const info = getEmpInfo(log.empleadoId, log.nombreEmpleado);
+      const info = getEmpInfo(log.empleadoId, log.nombreEmpleado, log.pin);
 
       // Filtro por Fecha
       if (quickDateFilter === 'today' && log.fecha !== todayStr) return false;
@@ -662,7 +784,10 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       if (selectedEmployeeId !== 'all') {
         if (
           log.empleadoId !== selectedEmployeeId &&
-          log.nombreEmpleado !== selectedEmployeeId
+          log.nombreEmpleado !== selectedEmployeeId &&
+          info.emp?.id !== selectedEmployeeId &&
+          info.doc !== selectedEmployeeId &&
+          log.pin !== selectedEmployeeId
         ) {
           return false;
         }
@@ -685,6 +810,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       if (filterSearch.trim()) {
         const query = filterSearch.toLowerCase();
         const searchPool = `
+          ${info.nombre}
           ${log.nombreEmpleado} 
           ${info.doc} 
           ${info.cargo} 
@@ -710,10 +836,12 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     const groupedMap = new Map<string, MarcacionAsistencia>();
 
     for (const log of rawFiltered) {
+      const info = getEmpInfo(log.empleadoId, log.nombreEmpleado, log.pin);
+      const empIdentifier = info.emp?.id || log.empleadoId || log.pin || info.doc || log.nombreEmpleado;
       // Las regularizaciones manuales RRHH se mantienen intactas
       const key = log.metodoVerificacion === 'Manual RRHH'
         ? `manual_${log.id}`
-        : `${log.empleadoId}_${log.fecha}_${log.tipo}`;
+        : `${empIdentifier}_${log.fecha}_${log.tipo}`;
 
       if (!groupedMap.has(key)) {
         groupedMap.set(key, log);
@@ -771,12 +899,12 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     ];
 
     const rows = filteredEvents.map((log) => {
-      const info = getEmpInfo(log.empleadoId, log.nombreEmpleado);
+      const info = getEmpInfo(log.empleadoId, log.nombreEmpleado, log.pin);
       return [
         log.fecha,
         log.hora,
         `"${info.doc}"`,
-        `"${log.nombreEmpleado}"`,
+        `"${info.nombre}"`,
         `"${info.cargo}"`,
         `"${info.empresa}"`,
         `"${info.departamento}"`,
@@ -885,9 +1013,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
         >
           <span className="material-symbols-outlined text-[18px]">rule</span>
           Incidencias & Omisiones de Marcación
-          {incidenciasDiarias.length > 0 && (
+          {allIncidenciasDiarias.length > 0 && (
             <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-              {incidenciasDiarias.length}
+              {allIncidenciasDiarias.length}
             </span>
           )}
         </button>
@@ -1429,7 +1557,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredEvents.length > 0 ? (
                     filteredEvents.map((log) => {
-                      const empInfo = getEmpInfo(log.empleadoId, log.nombreEmpleado);
+                      const empInfo = getEmpInfo(log.empleadoId, log.nombreEmpleado, log.pin);
                       const isEntry = log.tipo === 'Entrada';
                       const isManual =
                         log.metodoVerificacion === 'Manual RRHH' ||
@@ -1465,17 +1593,17 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               {empInfo.foto ? (
                                 <img
                                   src={empInfo.foto}
-                                  alt={log.nombreEmpleado}
+                                  alt={empInfo.nombre}
                                   className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
                                 />
                               ) : (
                                 <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[9px] shrink-0">
-                                  {log.nombreEmpleado.charAt(0)}
+                                  {empInfo.nombre.charAt(0)}
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <p className="font-bold text-slate-900 text-[11px] truncate max-w-[160px]">
-                                  {log.nombreEmpleado}
+                                <p className="font-bold text-slate-900 text-[11px] truncate max-w-[160px]" title={empInfo.nombre}>
+                                  {empInfo.nombre}
                                 </p>
                                 <p className="text-[9px] text-slate-500 truncate max-w-[160px]">
                                   DNI: {empInfo.doc} &bull; {empInfo.cargo}
@@ -1659,14 +1787,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   Consolidado Diario de Omisiones e Inasistencias
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Detección automática de colaboradores con Omisión de Entrada, Omisión de Salida o Falta.
+                  Detección inteligente de colaboradores con Omisión de Entrada, Omisión de Salida o Falta.
                 </p>
               </div>
               {onOpenManualPunchModal && (
                 <button
                   type="button"
                   onClick={onOpenManualPunchModal}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center gap-1.5 cursor-pointer transition-all hover:shadow-xs"
                 >
                   <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
                   Regularización Extemporánea (RRHH)
@@ -1674,8 +1802,77 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               )}
             </div>
 
+            {/* Barra de Filtros de Fecha & Empresa para Detección de Anomalías */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-xs font-bold text-slate-700">Fecha a Evaluar:</span>
+                <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setAnomalyDate(todayStr)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                      anomalyDate === todayStr ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnomalyDate(yesterdayStr)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                      anomalyDate === yesterdayStr ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Ayer
+                  </button>
+                  <div className="flex items-center gap-1 pl-2 border-l border-slate-200">
+                    <span className="material-symbols-outlined text-slate-400 text-[16px]">calendar_today</span>
+                    <input
+                      type="date"
+                      value={anomalyDate}
+                      max={todayStr}
+                      onChange={(e) => setAnomalyDate(e.target.value)}
+                      className="text-xs font-semibold text-slate-800 bg-transparent outline-none cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700">Tipo de Incidencia:</span>
+                  <select
+                    value={anomalyTypeFilter}
+                    onChange={(e) => setAnomalyTypeFilter(e.target.value as any)}
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none cursor-pointer focus:border-blue-600 shadow-2xs"
+                  >
+                    <option value="all">Todas las Incidencias ({allIncidenciasDiarias.length})</option>
+                    <option value="OMISION_SALIDA">Omisión de Salida</option>
+                    <option value="OMISION_ENTRADA">Omisión de Entrada</option>
+                    <option value="INASISTENCIA">Inasistencias / Faltas</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700">Empresa:</span>
+                  <select
+                    value={anomalyCompany}
+                    onChange={(e) => setAnomalyCompany(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none cursor-pointer focus:border-blue-600 shadow-2xs"
+                  >
+                    <option value="all">🏢 Todas las Empresas</option>
+                    {EMPRESAS_GRUPO_CARMELITA.map((emp) => (
+                      <option key={emp} value={emp}>
+                        {emp}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
             {/* Tabla de Incidencias */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                   <tr>
@@ -1695,7 +1892,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
                       return (
                         <tr key={inc.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="p-3 font-mono font-bold text-slate-900">{inc.fecha}</td>
+                          <td className="p-3 font-mono font-bold text-slate-900 whitespace-nowrap">{inc.fecha}</td>
                           <td className="p-3">
                             <p className="font-bold text-slate-900">{inc.nombreEmpleado}</p>
                             <p className="text-[10px] text-slate-500">DNI: {inc.doc} • {inc.cargo}</p>
@@ -1703,16 +1900,16 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                           <td className="p-3 font-medium text-slate-700">{inc.empresa}</td>
                           <td className="p-3">
                             <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                                 isFalta
-                                  ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                  ? 'bg-rose-50 text-rose-800 border-rose-200'
                                   : isOmisionSalida
-                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
-                                  : 'bg-orange-100 text-orange-800 border-orange-300'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-orange-50 text-orange-800 border-orange-200'
                               }`}
                             >
-                              <span className="material-symbols-outlined text-[13px]">
-                                {isFalta ? 'no_accounts' : isOmisionSalida ? 'output_off' : 'login_off'}
+                              <span className="material-symbols-outlined text-[14px]">
+                                {isFalta ? 'person_off' : isOmisionSalida ? 'logout' : 'login'}
                               </span>
                               {isFalta ? 'INASISTENCIA / FALTA' : isOmisionSalida ? 'OMISIÓN DE SALIDA' : 'OMISIÓN DE ENTRADA'}
                             </span>
@@ -1740,8 +1937,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                           <span className="material-symbols-outlined text-[36px] text-emerald-500">
                             task_alt
                           </span>
-                          <p className="font-bold text-slate-700">
-                            ¡Excelente! No se detectaron omisiones ni inasistencias para la fecha evaluada.
+                          <p className="font-bold text-slate-700 text-sm">
+                            ¡Excelente! No se detectaron omisiones ni inasistencias para {anomalyDate === todayStr ? 'el día de hoy' : `el día ${anomalyDate}`}.
+                          </p>
+                          <p className="text-xs text-slate-500 max-w-md">
+                            {anomalyDate === todayStr
+                              ? 'Los colaboradores que registraron su ingreso se encuentran laborando activamente dentro de su jornada laboral.'
+                              : 'Todas las marcaciones del personal se completaron correctamente o no presentan inconsistencias pendientes de regularización.'}
                           </p>
                         </div>
                       </td>
@@ -1799,43 +2001,42 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     Primeras marcaciones registradas de este día:
                   </h4>
                   <ul className="space-y-1.5 text-[11px] text-slate-600">
-                    {punchLogs && punchLogs.length > 0 ? (
-                      punchLogs.slice(0, 4).map((log) => (
-                        <li
-                          key={log.id}
-                          className="flex justify-between p-2 rounded-lg bg-slate-50 border border-slate-100"
-                        >
-                          <span>
-                            {log.hora} - {log.nombreEmpleado} ({log.nombreDispositivo})
-                          </span>
-                          <span
-                            className={`font-bold ${
-                              log.esError
-                                ? 'text-rose-600'
-                                : log.estado.toLowerCase().includes('tardanza')
-                                ? 'text-amber-600'
-                                : 'text-emerald-600'
-                            }`}
+                    {(() => {
+                      const dayLogs = (punchLogs || []).filter(
+                        (log) => log.fecha === selectedDayDetail.dateStr
+                      );
+                      if (dayLogs.length === 0) {
+                        return (
+                          <li className="p-3 text-center text-slate-400 bg-slate-50 rounded-xl border border-slate-100">
+                            Sin eventos biométricos registrados para esta fecha
+                          </li>
+                        );
+                      }
+                      return dayLogs.slice(0, 8).map((log) => {
+                        const info = getEmpInfo(log.empleadoId, log.nombreEmpleado, log.pin);
+                        return (
+                          <li
+                            key={log.id}
+                            className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100"
                           >
+                            <span>
+                              <strong className="font-mono text-slate-800">{log.hora}</strong> &bull; {info.nombre} ({log.nombreDispositivo})
+                            </span>
+                            <span
+                              className={`font-bold text-[10px] px-2 py-0.5 rounded-full ${
+                                log.esError
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  : log.estado.toLowerCase().includes('tardanza')
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              }`}
+                            >
                             {log.estado}
                           </span>
                         </li>
-                      ))
-                    ) : employees.length > 0 ? (
-                      employees.slice(0, 3).map((emp, i) => (
-                        <li
-                          key={emp.id}
-                          className="flex justify-between p-2 rounded-lg bg-slate-50 border border-slate-100"
-                        >
-                          <span>
-                            08:0{i * 2} - {emp.nombre} ({emp.sede})
-                          </span>
-                          <span className="text-emerald-600 font-bold">Puntual</span>
-                        </li>
-                      ))
-                    ) : (
-                      <li className="p-2 text-center text-slate-400">Sin eventos biométricos registrados</li>
-                    )}
+                      );
+                    });
+                  })()}
                   </ul>
                 </div>
 
@@ -1881,9 +2082,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       {/* ========================================================================= */}
       {/* VISTA 4: GESTIÓN Y APROBACIÓN DE HORAS EXTRAS (OVERTIME - LEY D.L. 728)    */}
       {/* ========================================================================= */}
+      {/* VISTA 4: APROBACIÓN DE HORAS EXTRAS (LEY D.L. 728)                        */}
+      {/* ========================================================================= */}
       {subView === 'overtime' && (
         <div className="space-y-4 animate-in fade-in">
-          {/* Tarjetas KPI de Horas Extras */}
+          {/* Tarjetas KPI de Horas Extras para el período seleccionado */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100">
@@ -1891,7 +2094,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               </div>
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Solicitudes HE</p>
-                <p className="text-xl font-extrabold text-slate-900 font-headline">{resolvedOvertimeList.length}</p>
+                <p className="text-xl font-extrabold text-slate-900 font-headline">{filteredOvertimeList.length}</p>
               </div>
             </div>
 
@@ -1902,7 +2105,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Pendientes RRHH</p>
                 <p className="text-xl font-extrabold text-amber-600 font-headline">
-                  {resolvedOvertimeList.filter((h) => h.estado === 'Pendiente').length}
+                  {filteredOvertimeList.filter((h) => h.estado === 'Pendiente').length}
                 </p>
               </div>
             </div>
@@ -1914,7 +2117,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Aprobadas Nómina</p>
                 <p className="text-xl font-extrabold text-emerald-600 font-headline">
-                  {resolvedOvertimeList.filter((h) => h.estado === 'Aprobado').length}
+                  {filteredOvertimeList.filter((h) => h.estado === 'Aprobado').length}
                 </p>
               </div>
             </div>
@@ -1926,33 +2129,62 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Rechazadas / Canje</p>
                 <p className="text-xl font-extrabold text-rose-600 font-headline">
-                  {resolvedOvertimeList.filter((h) => h.estado === 'Rechazado' || h.estado === 'Compensado').length}
+                  {filteredOvertimeList.filter((h) => h.estado === 'Rechazado' || h.estado === 'Compensado').length}
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Barra de Filtros */}
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-            <div className="relative w-full sm:w-80">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">
-                search
-              </span>
-              <input
-                type="text"
-                value={overtimeSearch}
-                onChange={(e) => setOvertimeSearch(e.target.value)}
-                placeholder="Buscar por colaborador o DNI..."
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none focus:border-blue-600 focus:bg-white transition-all"
-              />
+          {/* Barra de Filtros con Selector de Mes y Año */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap gap-3 items-center justify-between">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+              <div className="relative flex-1 min-w-[180px] max-w-xs">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">
+                  search
+                </span>
+                <input
+                  type="text"
+                  value={overtimeSearch}
+                  onChange={(e) => setOvertimeSearch(e.target.value)}
+                  placeholder="Buscar por colaborador o DNI..."
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none focus:border-blue-600 focus:bg-white transition-all shadow-2xs"
+                />
+              </div>
+
+              {/* Selector de Mes */}
+              <select
+                value={overtimeMonth}
+                onChange={(e) => setOvertimeMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-blue-600 cursor-pointer shadow-2xs"
+              >
+                <option value="all">📅 Todos los Meses</option>
+                {MESES.map((mes, idx) => (
+                  <option key={mes} value={idx}>
+                    {mes}
+                  </option>
+                ))}
+              </select>
+
+              {/* Selector de Año */}
+              <select
+                value={overtimeYear}
+                onChange={(e) => setOvertimeYear(Number(e.target.value))}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold font-mono text-slate-800 outline-none focus:border-blue-600 cursor-pointer shadow-2xs"
+              >
+                {AÑOS.map((yr) => (
+                  <option key={yr} value={yr}>
+                    {yr}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <select
               value={overtimeFilter}
               onChange={(e) => setOvertimeFilter(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none font-medium cursor-pointer"
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none font-semibold cursor-pointer shadow-2xs"
             >
-              <option value="all">Todos los Estados ({resolvedOvertimeList.length})</option>
+              <option value="all">Todos los Estados ({filteredOvertimeList.length})</option>
               <option value="Pendiente">🟡 Pendientes de Aprobación</option>
               <option value="Aprobado">🟢 Aprobadas para Pago</option>
               <option value="Rechazado">🔴 Rechazadas</option>
@@ -1976,15 +2208,22 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {resolvedOvertimeList
-                    .filter((he) => {
-                      const matchesSearch =
-                        he.nombreEmpleado.toLowerCase().includes(overtimeSearch.toLowerCase()) ||
-                        (he.documentoEmpleado || '').includes(overtimeSearch);
-                      const matchesFilter = overtimeFilter === 'all' || he.estado === overtimeFilter;
-                      return matchesSearch && matchesFilter;
-                    })
-                    .map((he) => {
+                  {filteredOvertimeList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-400">
+                        <span className="material-symbols-outlined text-4xl mb-2 text-slate-300 block">
+                          more_time
+                        </span>
+                        <p className="text-xs font-semibold text-slate-700">
+                          No se registran horas extras para {overtimeMonth === 'all' ? `el año ${overtimeYear}` : `${MESES[overtimeMonth]} ${overtimeYear}`}
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Seleccione otro mes o verifique que existan marcaciones de salida que excedan el horario regular.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredOvertimeList.map((he) => {
                       const hrs = Math.floor(he.minutosDetectados / 60);
                       const mins = he.minutosDetectados % 60;
                       const textoTiempo = `${hrs > 0 ? `${hrs}h ` : ''}${mins}m`;
@@ -2071,7 +2310,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                           </td>
                         </tr>
                       );
-                    })}
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2157,7 +2397,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             </div>
 
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
-              <p className="font-bold text-slate-900">{deletingPunchLog.nombreEmpleado}</p>
+              <p className="font-bold text-slate-900">
+                {getEmpInfo(deletingPunchLog.empleadoId, deletingPunchLog.nombreEmpleado, deletingPunchLog.pin).nombre}
+              </p>
               <p className="text-slate-600">
                 {deletingPunchLog.fecha} &bull; <strong className="font-mono">{deletingPunchLog.hora}</strong> &bull; {deletingPunchLog.tipo}
               </p>

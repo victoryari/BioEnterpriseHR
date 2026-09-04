@@ -6,17 +6,18 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
-  const [email, setEmail] = useState('admin@bioenterprise.pe');
-  const [password, setPassword] = useState('••••••••');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [lang, setLang] = useState('ES');
   const [rememberMe, setRememberMe] = useState(true);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (email.toLowerCase().includes('admin')) {
-      onLogin('admin', email);
+    const clean = identifier.trim().toLowerCase();
+    if (clean.includes('admin') || clean === 'soporte' || clean === 'sistemas' || clean === 'superadmin') {
+      onLogin('admin', identifier);
     } else {
-      onLogin('employee', email);
+      onLogin('employee', identifier);
     }
   };
 
@@ -75,7 +76,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             <div>
               <h2 className="text-2xl font-bold font-headline text-slate-900">Bienvenido de nuevo</h2>
               <p className="text-xs text-slate-500 mt-1">
-                Inicie sesión para gestionar los datos de la fuerza laboral.
+                Inicie sesión con su DNI, PIN o cuenta corporativa.
               </p>
             </div>
             {/* Language Selector */}
@@ -96,20 +97,20 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-800 mb-1.5" htmlFor="email">
-                Correo electrónico o Usuario
+              <label className="block text-xs font-semibold text-slate-800 mb-1.5" htmlFor="identifier">
+                DNI, PIN o Correo electrónico
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span className="material-symbols-outlined text-slate-400 text-[20px]">person</span>
+                  <span className="material-symbols-outlined text-slate-400 text-[20px]">badge</span>
                 </div>
                 <input
-                  id="email"
-                  type="email"
+                  id="identifier"
+                  type="text"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ejemplo@grupocarmelita.com o DNI"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="Ingrese su DNI, PIN o correo"
                   className="block w-full pl-10 pr-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
                 />
               </div>
@@ -178,7 +179,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <button
                 type="button"
                 onClick={() => {
-                  setEmail('admin@bioenterprise.pe');
+                  setIdentifier('admin@bioenterprise.pe');
+                  setPassword('admin123');
                   onLogin('admin', 'admin@bioenterprise.pe');
                 }}
                 className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-left transition-colors group cursor-pointer"
@@ -189,7 +191,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <button
                 type="button"
                 onClick={() => {
-                  setEmail('legal@grupocarmelita.com');
+                  setIdentifier('legal@grupocarmelita.com');
+                  setPassword('carmelita2026');
                   onLogin('employee', 'legal@grupocarmelita.com');
                 }}
                 className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-left transition-colors group cursor-pointer"

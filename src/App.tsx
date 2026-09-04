@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ModoVista,
   Empleado,
@@ -62,6 +62,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState<ModoVista>('overview');
   const [userRole, setUserRole] = useState<'admin' | 'employee'>('admin');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Estado de Conectividad con la Base de Datos MySQL / Laravel API
+  const [isBackendConnected, setIsBackendConnected] = useState<boolean | null>(null);
 
   // Estados del Dominio con Persistencia (localStorage)
   const [devices, setDevices] = useState<Dispositivo[]>(() => storageService.getDevices());
@@ -152,89 +155,154 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Gestión de Usuarios y Roles (RBAC) sincronizados con MySQL (bioenterprise_hr)
-  useEffect(() => {
-    apiService
-      .getSystemUsers()
-      .then((dbUsers) => {
-        if (dbUsers && dbUsers.length > 0) {
-          setSystemUsers(dbUsers);
-          storageService.saveSystemUsers(dbUsers);
-        }
-      })
-      .catch((err) => {
-        console.warn('API Laravel no accesible al iniciar, usando almacenamiento local:', err);
-      });
-  }, []);
+  // Reconciliador de marcaciones para vincularlas automáticamente con los colaboradores
+  const reconcileLogsWithEmployees = (
+    logs: MarcacionAsistencia[],
+    emps: Empleado[]
+  ): MarcacionAsistencia[] => {
+    if (!logs || logs.length === 0 || !emps || emps.length === 0) return logs;
+    return logs.map((log) => {
+      const emp = emps.find(
+        (e) =>
+          (log.empleadoId && e.id === log.empleadoId) ||
+          (log.pin && (e.pin === log.pin || e.numeroDocumento === log.pin)) ||
+          (log.nombreEmpleado && (
+            (e.pin && log.nombreEmpleado.includes(e.pin)) ||
+            (e.numeroDocumento && log.nombreEmpleado.includes(e.numeroDocumento)) ||
+            (!log.nombreEmpleado.toLowerCase().startsWith('usuario pin') && e.nombre.toLowerCase() === log.nombreEmpleado.toLowerCase())
+          ))
+      );
+      if (emp) {
+        return {
+          ...log,
+          empleadoId: emp.id,
+          nombreEmpleado: emp.nombre,
+        };
+      }
+      return log;
+    });
+  };
 
-  // Cargar Colaboradores / Empleados desde la API MySQL al iniciar
-  useEffect(() => {
-    if (sedes.length === 0 || departamentos.length === 0) return;
-    apiService
-      .getEmployees(sedes, departamentos)
-      .then((dbEmployees) => {
-        if (dbEmployees && dbEmployees.length > 0) {
-          setEmployees(dbEmployees);
-          storageService.saveEmployees(dbEmployees);
-          if (!selectedEmployee) {
-            setSelectedEmployee(dbEmployees[0]);
-          }
+  // Función Centralizada para Sincronizar todos los datos reales de la Base de Datos MySQL
+  const syncAllDataFromBackend = useCallback(async (isManualRetry = false) => {
+    try {
+      const isOnline = await apiService.checkHealth();
+      if (!isOnline) {
+        setIsBackendConnected(false);
+        if (isManualRetry) {
+          addToast(
+            'Sin Conexión con el Backend',
+            'No se pudo comunicar con el servidor Laravel en http://localhost:8002/api. Verifique que el servicio esté iniciado.',
+            'error'
+          );
         }
-      })
-      .catch((err) => {
-        console.warn('API Laravel no respondió al consultar empleados, usando almacenamiento local:', err);
-      });
-  }, [sedes, departamentos]);
+        return;
+      }
 
-  // Cargar Sedes y Departamentos desde MySQL al iniciar
-  useEffect(() => {
-    apiService.getSedes().then((dbSedes) => {
-      if (dbSedes && dbSedes.length > 0) {
+      setIsBackendConnected(true);
+
+      // Cargar Sedes y Departamentos en paralelo
+      const [dbSedes, dbDeptos] = await Promise.all([
+        apiService.getSedes().catch(() => [] as Sede[]),
+        apiService.getDepartamentos().catch(() => [] as Departamento[]),
+      ]);
+
+      if (dbSedes) {
         setSedes(dbSedes);
         storageService.saveSedes(dbSedes);
       }
-    }).catch((e) => console.warn('Error al cargar sedes de MySQL:', e));
-
-    apiService.getDepartamentos().then((dbDeptos) => {
-      if (dbDeptos && dbDeptos.length > 0) {
+      if (dbDeptos) {
         setDepartamentos(dbDeptos);
         storageService.saveDepartamentos(dbDeptos);
       }
-    }).catch((e) => console.warn('Error al cargar departamentos de MySQL:', e));
-  }, []);
 
-  // Cargar Dispositivos, Marcaciones, Permisos, Horarios, Turnos, Asignaciones, Feriados y Reglas desde MySQL
-  useEffect(() => {
-    apiService.getDevices().then((dbDevs) => {
-      if (dbDevs && dbDevs.length > 0) {
+      // Cargar Empleados, Dispositivos, Marcaciones, Usuarios y Reglas
+      const [dbEmployees, dbDevs, dbLogs, dbUsers, dbRules] = await Promise.all([
+        apiService.getEmployees(dbSedes || [], dbDeptos || []).catch(() => [] as Empleado[]),
+        apiService.getDevices().catch(() => [] as Dispositivo[]),
+        apiService.getPunchLogs().catch(() => [] as MarcacionAsistencia[]),
+        apiService.getSystemUsers().catch(() => [] as UsuarioSistema[]),
+        apiService.getAttendanceRules().catch(() => null),
+      ]);
+
+      const effectiveEmps = dbEmployees && dbEmployees.length > 0 ? dbEmployees : employees;
+
+      if (dbEmployees) {
+        setEmployees(dbEmployees);
+        storageService.saveEmployees(dbEmployees);
+        setSelectedEmployee((prev) => {
+          if (!prev) return dbEmployees[0] || null;
+          const found = dbEmployees.find((e) => e.id === prev.id);
+          return found || dbEmployees[0] || null;
+        });
+      }
+
+      if (dbDevs) {
         setDevices(dbDevs);
         storageService.saveDevices(dbDevs);
       }
-    }).catch((e) => console.warn('Error al cargar dispositivos de MySQL:', e));
 
-    const fetchLogs = () => {
-      apiService.getPunchLogs().then((dbLogs) => {
-        if (dbLogs) {
-          setPunchLogs(dbLogs);
-          storageService.savePunchLogs(dbLogs);
-        }
-      }).catch((e) => console.warn('Error al cargar marcaciones de MySQL:', e));
-    };
+      if (dbLogs) {
+        const reconciled = reconcileLogsWithEmployees(dbLogs, effectiveEmps);
+        setPunchLogs(reconciled);
+        storageService.savePunchLogs(reconciled);
+      }
 
-    fetchLogs();
+      if (dbUsers && dbUsers.length > 0) {
+        setSystemUsers(dbUsers);
+        storageService.saveSystemUsers(dbUsers);
+      }
 
-    // Polling automático de marcaciones cada 10 segundos para "Marcaciones en Vivo"
-    const pollInterval = setInterval(fetchLogs, 10000);
-
-    apiService.getAttendanceRules().then((dbRules) => {
       if (dbRules) {
         setAttendanceRules(dbRules);
         storageService.saveAttendanceRules(dbRules);
       }
-    }).catch((e) => console.warn('Error al cargar reglas de asistencia de MySQL:', e));
 
-    return () => clearInterval(pollInterval);
-  }, []);
+      if (isManualRetry) {
+        addToast('Conexión Exitosa', 'Datos sincronizados correctamente con MySQL', 'success');
+      }
+    } catch (err) {
+      console.warn('Error al sincronizar datos de MySQL:', err);
+      setIsBackendConnected(false);
+      if (isManualRetry) {
+        addToast(
+          'Error de Conexión',
+          'Falló la conexión con la base de datos MySQL.',
+          'error'
+        );
+      }
+    }
+  }, [employees]);
+
+  // Hook de Sincronización Inicial y Polling periódico
+  useEffect(() => {
+    syncAllDataFromBackend();
+
+    const interval = setInterval(() => {
+      apiService.checkHealth().then((online) => {
+        if (online) {
+          if (!isBackendConnected) {
+            syncAllDataFromBackend();
+          } else {
+            // Polling de nuevas marcaciones
+            apiService.getPunchLogs().then((dbLogs) => {
+              if (dbLogs) {
+                const reconciled = reconcileLogsWithEmployees(dbLogs, employees);
+                setPunchLogs(reconciled);
+                storageService.savePunchLogs(reconciled);
+              }
+            }).catch(() => {});
+          }
+        } else {
+          setIsBackendConnected(false);
+        }
+      }).catch(() => {
+        setIsBackendConnected(false);
+      });
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [syncAllDataFromBackend, isBackendConnected, employees]);
 
   const handleSaveSystemUser = async (updatedUser: UsuarioSistema, clave?: string) => {
     // 1. Actualización optimista inmediata en interfaz y caché
@@ -371,14 +439,16 @@ export default function App() {
     } else {
       if (identifier) {
         const clean = identifier.trim().toLowerCase();
+        const cleanDoc = clean.replace(/\D/g, '');
         const words = clean.split(/\s+/).filter(Boolean);
         const found = employees.find((e) => {
-          const empMail = e.correo.toLowerCase();
+          const empMail = (e.correo || '').toLowerCase();
           const empDoc = (e.numeroDocumento || '').toLowerCase();
           const empPin = (e.pin || '').toLowerCase();
-          const empName = e.nombre.toLowerCase();
+          const empName = (e.nombre || '').toLowerCase();
 
           if (empMail === clean || empDoc === clean || empPin === clean) return true;
+          if (cleanDoc && (empDoc === cleanDoc || empPin === cleanDoc)) return true;
           if (empName.includes(clean)) return true;
           if (words.length > 1 && words.every((w) => empName.includes(w))) return true;
           return words.some((w) => w.length >= 4 && empName.includes(w));
@@ -387,37 +457,34 @@ export default function App() {
           setSelectedEmployee(found);
           addToast('Sesión Iniciada', `Bienvenido(a), ${found.nombre}`, 'info');
         } else {
-          // Si el colaborador ingresa con un nombre o correo corporativo
-          // y no estaba previamente en la lista, se registra de forma inmediata
-          const isRenato = clean.includes('renato') || clean.includes('monteza');
-          const isLegal = clean.includes('legal') || isRenato;
+          // Si el colaborador ingresa con un DNI o credencial nueva
           const newColab: Empleado = {
             id: `emp-carmelita-${Date.now()}`,
             tipoDocumento: 'DNI',
-            numeroDocumento: '46892105',
-            pin: '7721',
-            biometriaHuella: true,
-            biometriaRostro: true,
+            numeroDocumento: cleanDoc || clean,
+            pin: cleanDoc ? cleanDoc.slice(-4) : '0000',
+            biometriaHuella: false,
+            biometriaRostro: false,
             tipoMarcadoPredilecto: 'Huella',
-            nombre: isRenato ? 'Renato Monteza' : isLegal ? 'Dr. Fernando Salazar (Legal)' : clean.split('@')[0].toUpperCase(),
-            correo: clean.includes('@') ? clean : 'renato.monteza@grupocarmelita.com',
-            cargo: isRenato ? 'Jefe Legal' : isLegal ? 'Asesor Jurídico & Laboral' : 'Colaborador',
-            departamento: isLegal ? 'Legal' : (departamentos[0]?.nombre || 'Operaciones'),
-            sede: sedes[0]?.nombre || 'Sede Principal San Borja',
+            nombre: clean.includes('@') ? clean.split('@')[0].toUpperCase() : `Colaborador (${clean})`,
+            correo: clean.includes('@') ? clean : `${clean}@grupocarmelita.com`,
+            cargo: 'Colaborador',
+            departamento: departamentos[0]?.nombre || 'Almacén',
+            sede: sedes[0]?.nombre || 'Sede Principal',
             estado: 'Activo',
-            foto: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-            conteoHuellas: 2,
-            rostroActualizado: 'Actualizado hoy',
+            foto: '',
+            conteoHuellas: 0,
+            rostroActualizado: 'Sin registro',
             accesoPuertas: { entradaPrincipal: true, centroDatos: false, almacen: false },
-            telefono: '+51 984 521 693',
-            fechaIngreso: '01/01/2023',
-            sueldoBase: isRenato ? 6500.0 : isLegal ? 4800.0 : 2500.0,
+            telefono: '',
+            fechaIngreso: new Date().toISOString().split('T')[0],
+            sueldoBase: 0,
           };
           const updated = [...employees, newColab];
           setEmployees(updated);
           storageService.saveEmployees(updated);
           setSelectedEmployee(newColab);
-          addToast('Sesión Iniciada', `Bienvenido(a), ${newColab.nombre} (${newColab.cargo})`, 'info');
+          addToast('Sesión Iniciada', `Bienvenido(a), ${newColab.nombre}`, 'info');
         }
       } else {
         addToast('Sesión Iniciada', 'Bienvenido al Portal de Autoservicio', 'info');
@@ -498,6 +565,14 @@ export default function App() {
     setEmployees(updated);
     storageService.saveEmployees(updated);
     setSelectedEmployee(emp);
+
+    // Reconciliar marcaciones existentes de inmediato
+    setPunchLogs((prevLogs) => {
+      const reconciled = reconcileLogsWithEmployees(prevLogs, updated);
+      storageService.savePunchLogs(reconciled);
+      return reconciled;
+    });
+
     try {
       await apiService.createEmployee(emp, sedes, departamentos);
       addToast(
@@ -527,6 +602,14 @@ export default function App() {
     if (selectedEmployee?.id === emp.id) {
       setSelectedEmployee(emp);
     }
+
+    // Reconciliar marcaciones existentes de inmediato
+    setPunchLogs((prevLogs) => {
+      const reconciled = reconcileLogsWithEmployees(prevLogs, updated);
+      storageService.savePunchLogs(reconciled);
+      return reconciled;
+    });
+
     try {
       await apiService.updateEmployee(emp, sedes, departamentos);
       addToast(
@@ -1245,12 +1328,39 @@ export default function App() {
           userRole={userRole}
           currentEmployee={selectedEmployee}
           currentAdminUser={currentAdminUser}
+          isBackendConnected={isBackendConnected}
+          onRetryConnect={() => syncAllDataFromBackend(true)}
           onOpenManageUsers={() => {
             setInitialEditUserId(null);
             setIsManageSystemUsersModalOpen(true);
           }}
           onOpenEditProfile={handleOpenEditProfile}
         />
+
+        {/* Banner Informativo cuando la Base de Datos / Backend está Desconectado */}
+        {isBackendConnected === false && (
+          <div className="bg-gradient-to-r from-rose-600 to-rose-700 text-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs font-semibold shadow-md z-20 border-b border-rose-800">
+            <div className="flex items-center gap-2.5">
+              <span className="material-symbols-outlined text-[20px] text-rose-100">cloud_off</span>
+              <div>
+                <p className="font-bold text-white">
+                  Sin conexión con el Servidor Backend / Base de Datos MySQL
+                </p>
+                <p className="text-[11px] text-rose-100 font-normal">
+                  No se puede comunicar con la API en <code>http://localhost:8002/api</code>. No se cargarán datos de prueba simulados para evitar confusiones.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => syncAllDataFromBackend(true)}
+              className="px-3 py-1.5 bg-white text-rose-700 font-bold rounded-xl hover:bg-rose-50 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs shrink-0"
+            >
+              <span className="material-symbols-outlined text-[16px]">refresh</span>
+              Reintentar Conexión
+            </button>
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto pb-20 lg:pb-8">
           {currentView === 'overview' && (
@@ -1259,6 +1369,11 @@ export default function App() {
               punchLogs={punchLogs}
               employees={employees}
               sedes={sedes}
+              timetables={timetables}
+              shifts={shifts}
+              shiftAssignments={shiftAssignments}
+              attendanceRules={attendanceRules}
+              leaveRequests={leaveRequests}
               onOpenSyncModal={() => setIsSyncModalOpen(true)}
               onOpenExportModal={() => setIsExportPayrollModalOpen(true)}
               onOpenRawLogsModal={() => setIsRawLogsModalOpen(true)}
@@ -1375,6 +1490,7 @@ export default function App() {
           {currentView === 'self-service' && (
             <SelfServiceView
               requests={leaveRequests}
+              punchLogs={punchLogs}
               currentEmployee={selectedEmployee || employees[0]}
               employees={employees}
               onSelectEmployee={setSelectedEmployee}

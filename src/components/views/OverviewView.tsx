@@ -1,11 +1,26 @@
 import React, { useState, useMemo } from 'react';
-import { Dispositivo, MarcacionAsistencia, Empleado, Sede } from '../../types';
+import {
+  Dispositivo,
+  MarcacionAsistencia,
+  Empleado,
+  Sede,
+  HorarioTrabajo,
+  Turno,
+  AsignacionTurno,
+  ReglasAsistencia,
+  SolicitudPermiso,
+} from '../../types';
 
 interface OverviewViewProps {
   devices: Dispositivo[];
   punchLogs: MarcacionAsistencia[];
   employees?: Empleado[];
   sedes?: Sede[];
+  timetables?: HorarioTrabajo[];
+  shifts?: Turno[];
+  shiftAssignments?: AsignacionTurno[];
+  attendanceRules?: ReglasAsistencia | null;
+  leaveRequests?: SolicitudPermiso[];
   onOpenSyncModal: () => void;
   onOpenExportModal: () => void;
   onOpenRawLogsModal: () => void;
@@ -18,6 +33,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   punchLogs,
   employees = [],
   sedes = [],
+  timetables = [],
+  shifts = [],
+  shiftAssignments = [],
+  attendanceRules,
+  leaveRequests = [],
   onOpenSyncModal,
   onOpenExportModal,
   onOpenRawLogsModal,
@@ -34,18 +54,28 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   // CÁLCULOS 100% DINÁMICOS DESDE MYSQL (BASE DE DATOS EN TIEMPO REAL)
   // ---------------------------------------------------------------------------
 
-  // Total de empleados activos e inactivos
+  // Helper para resolver colaborador de una marcación
+  const getEmpForLog = (p: MarcacionAsistencia) => {
+    return employees.find(
+      (e) =>
+        (p.empleadoId && e.id === p.empleadoId) ||
+        (p.pin && (e.pin === p.pin || e.numeroDocumento === p.pin)) ||
+        (p.nombreEmpleado && (
+          (e.pin && p.nombreEmpleado.includes(e.pin)) ||
+          (e.numeroDocumento && p.nombreEmpleado.includes(e.numeroDocumento)) ||
+          (!p.nombreEmpleado.toLowerCase().startsWith('usuario pin') && e.nombre.toLowerCase() === p.nombreEmpleado.toLowerCase())
+        ))
+    );
+  };
+
+  // Total de colaboradores activos
   const activeEmployees = useMemo(() => {
     return employees.length > 0 ? employees.filter((e) => e.estado === 'Activo') : [];
   }, [employees]);
 
-  const inactiveEmployeesCount = useMemo(() => {
-    return employees.filter((e) => e.estado === 'Inactivo').length;
-  }, [employees]);
-
   const totalEmployees = Math.max(activeEmployees.length, 1);
 
-  // Determinar la fecha de referencia "Hoy en sistema" (la fecha actual o la fecha más reciente con marcaciones)
+  // Determinar la fecha de referencia "Hoy en sistema"
   const todayStr = useMemo(() => new Date().toLocaleDateString('sv-SE'), []);
 
   const referenceDate = useMemo(() => {
@@ -58,6 +88,58 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     return todayStr;
   }, [punchLogs, todayStr]);
 
+  // Helper para resolver el horario programado de entrada y tolerancia de un empleado
+  const getEmployeeSchedule = (empIdOrDoc: string, dateStr: string) => {
+    let scheduledEntry = '08:30';
+    let toleranceMin = 15;
+
+    const dNum = new Date(dateStr + 'T00:00:00').getDay();
+    const diaSemanaNum = dNum === 0 ? 7 : dNum;
+
+    const assignment = shiftAssignments.find(
+      (sa) => sa.empleadoId === empIdOrDoc
+    );
+
+    if (assignment && shifts.length > 0 && timetables.length > 0) {
+      const shift = shifts.find((s) => s.id === assignment.turnoId);
+      if (shift && shift.dias) {
+        const diaConfig = shift.dias.find((d) => d.diaSemana === diaSemanaNum);
+        if (diaConfig && diaConfig.horarioId) {
+          const tt = timetables.find((t) => t.id === diaConfig.horarioId);
+          if (tt) {
+            scheduledEntry = tt.horaEntrada;
+            toleranceMin = tt.minutosTolerancia ?? 15;
+          }
+        }
+      }
+    }
+
+    const [eh, em] = scheduledEntry.split(':').map(Number);
+    const scheduledEntryMin = (eh || 8) * 60 + (em || 30);
+    return { scheduledEntryMin, toleranceMin };
+  };
+
+  // Helper para determinar si un punch de Entrada fue Tardanza y cuántos minutos de retraso tuvo
+  const evaluateEntryPunch = (punch: MarcacionAsistencia) => {
+    const emp = getEmpForLog(punch);
+    const empKey = emp?.id || emp?.numeroDocumento || punch.empleadoId || punch.pin || '';
+    const { scheduledEntryMin, toleranceMin } = getEmployeeSchedule(empKey, punch.fecha);
+
+    const [pH, pM] = punch.hora.split(':').map(Number);
+    const punchTimeMin = (pH || 0) * 60 + (pM || 0);
+    const diff = punchTimeMin - scheduledEntryMin;
+
+    const isLate = diff > toleranceMin;
+    const delayMins = Math.max(diff, 0);
+
+    return {
+      isLate,
+      delayMins,
+      diff,
+      emp,
+    };
+  };
+
   // Marcaciones de entrada de la fecha de referencia
   const targetDayEntries = useMemo(() => {
     return punchLogs.filter((p) => p.fecha === referenceDate && p.tipo === 'Entrada');
@@ -65,36 +147,44 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
   // Colaboradores únicos que asistieron hoy
   const presentEmployees = useMemo(() => {
-    const uniqueIds = new Set(targetDayEntries.map((p) => p.empleadoId));
+    const uniqueIds = new Set<string>();
+    targetDayEntries.forEach((p) => {
+      const emp = getEmpForLog(p);
+      if (emp) {
+        uniqueIds.add(emp.id);
+      } else if (p.empleadoId) {
+        uniqueIds.add(p.empleadoId);
+      } else if (p.pin) {
+        uniqueIds.add(p.pin);
+      } else {
+        uniqueIds.add(p.nombreEmpleado);
+      }
+    });
     return uniqueIds.size;
-  }, [targetDayEntries]);
+  }, [targetDayEntries, employees]);
 
   const attendanceRatePct = ((presentEmployees / totalEmployees) * 100).toFixed(1);
 
-  // Tardanzas del día de referencia
+  // Tardanzas reales del día de referencia calculadas contra el horario laboral
   const tardanzaEntriesToday = useMemo(() => {
-    return targetDayEntries.filter(
-      (p) => p.esError || p.estado.toLowerCase().includes('tardanza')
-    );
-  }, [targetDayEntries]);
+    return targetDayEntries.filter((p) => evaluateEntryPunch(p).isLate);
+  }, [targetDayEntries, shiftAssignments, shifts, timetables, employees]);
 
   const tardanzasEvents = tardanzaEntriesToday.length;
-  const tardanzaRatePct = ((tardanzasEvents / totalEmployees) * 100).toFixed(1);
+  const tardanzaRatePct = presentEmployees > 0
+    ? ((tardanzasEvents / presentEmployees) * 100).toFixed(1)
+    : '0.0';
 
   // Retraso promedio en minutos para las tardanzas de hoy
   const avgDelayMins = useMemo(() => {
     if (tardanzasEvents === 0) return 0;
     let totalMins = 0;
     tardanzaEntriesToday.forEach((p) => {
-      const match = p.estado.match(/\+(\d+)\s*MIN/i);
-      if (match && match[1]) {
-        totalMins += parseInt(match[1], 10);
-      } else {
-        totalMins += 15;
-      }
+      const evaluation = evaluateEntryPunch(p);
+      totalMins += evaluation.delayMins;
     });
     return Math.round(totalMins / tardanzasEvents);
-  }, [tardanzaEntriesToday, tardanzasEvents]);
+  }, [tardanzaEntriesToday, tardanzasEvents, shiftAssignments, shifts, timetables, employees]);
 
   // Comparativa vs Día Anterior
   const diffVsYesterdayInfo = useMemo(() => {
@@ -103,18 +193,35 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     const prevDateStr = prevDateObj.toLocaleDateString('sv-SE');
 
     const prevDayEntries = punchLogs.filter((p) => p.fecha === prevDateStr && p.tipo === 'Entrada');
-    const prevPresentCount = new Set(prevDayEntries.map((p) => p.empleadoId)).size;
-    const prevRate = (prevPresentCount / totalEmployees) * 100;
+    const prevUnique = new Set<string>();
+    prevDayEntries.forEach((p) => {
+      const emp = getEmpForLog(p);
+      if (emp) prevUnique.add(emp.id);
+      else if (p.empleadoId) prevUnique.add(p.empleadoId);
+      else if (p.pin) prevUnique.add(p.pin);
+    });
 
+    const prevRate = (prevUnique.size / totalEmployees) * 100;
     const diff = (parseFloat(attendanceRatePct) - prevRate).toFixed(1);
     const numDiff = parseFloat(diff);
     return {
       text: `${numDiff >= 0 ? '+' : ''}${diff}% vs. ayer`,
       isPositive: numDiff >= 0,
     };
-  }, [referenceDate, punchLogs, totalEmployees, attendanceRatePct]);
+  }, [referenceDate, punchLogs, totalEmployees, attendanceRatePct, employees]);
 
-  // Datos Semanales Dinámicos (Lun a Dom)
+  // Licencias & Descansos reales de hoy y solicitudes pendientes
+  const activeLeavesToday = useMemo(() => {
+    return leaveRequests.filter(
+      (r) => r.estado === 'Aprobado' && r.fechaInicio <= referenceDate && r.fechaFin >= referenceDate
+    );
+  }, [leaveRequests, referenceDate]);
+
+  const effectivePendingLeavesCount = useMemo(() => {
+    return leaveRequests.filter((r) => r.estado === 'Pendiente').length || pendingLeaveRequestsCount;
+  }, [leaveRequests, pendingLeaveRequestsCount]);
+
+  // Datos Semanales Dinámicos (Lun a Dom) evaluados contra horarios reales
   const weekData = useMemo(() => {
     const daysLabel = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
     const daysMap: Record<string, { onTime: number; late: number }> = {
@@ -127,7 +234,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       Dom: { onTime: 0, late: 0 },
     };
 
-    // Filtrar marcaciones de la semana seleccionada
     const refDateObj = new Date(referenceDate);
     const dayOfWeek = refDateObj.getDay(); // 0 Dom, 1 Lun...
     const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -149,7 +255,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       if (dayIdx < 0) dayIdx = 6;
       const dayName = daysLabel[dayIdx];
 
-      if (p.estado.toLowerCase().includes('tardanza')) {
+      const evaluation = evaluateEntryPunch(p);
+      if (evaluation.isLate) {
         daysMap[dayName].late += 1;
       } else {
         daysMap[dayName].onTime += 1;
@@ -164,7 +271,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       late: daysMap[day].late,
       max: maxDay,
     }));
-  }, [referenceDate, selectedWeek, punchLogs, totalEmployees]);
+  }, [referenceDate, selectedWeek, punchLogs, totalEmployees, shiftAssignments, shifts, timetables, employees]);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto animate-in fade-in">
@@ -182,20 +289,20 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           <button
             type="button"
             onClick={onOpenLeaveRequestsModal}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl shadow-2xs transition-colors"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl shadow-2xs transition-colors relative"
           >
-            <span className="material-symbols-outlined text-[18px] text-amber-600">approval</span>
+            <span className="material-symbols-outlined text-[18px] text-amber-500">assignment</span>
             Bandeja Solicitudes
-            {pendingLeaveRequestsCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-bold">
-                {pendingLeaveRequestsCount}
+            {effectivePendingLeavesCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-extrabold">
+                {effectivePendingLeavesCount}
               </span>
             )}
           </button>
           <button
             type="button"
             onClick={onOpenExportModal}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl shadow-2xs transition-colors"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl shadow-2xs transition-colors"
           >
             <span className="material-symbols-outlined text-[18px] text-slate-400">download</span>
             Exportar Reporte
@@ -203,7 +310,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           <button
             type="button"
             onClick={onOpenSyncModal}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
           >
             <span className="material-symbols-outlined text-[18px]">sync</span>
             Sincronizar Red
@@ -211,7 +318,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards Row (100% Reales y Consolidados desde MySQL) */}
+      {/* KPI Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         {/* Card 1: Tasa de Asistencia Global */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between hover:border-blue-300 transition-colors">
@@ -262,24 +369,37 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
 
         {/* Card 3: Licencias & Descansos */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between hover:border-blue-300 transition-colors">
+        <div
+          onClick={onOpenLeaveRequestsModal}
+          className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between hover:border-blue-300 transition-colors cursor-pointer"
+        >
           <div>
             <div className="flex justify-between items-start">
               <span className="text-[11px] font-bold tracking-wider text-slate-500 uppercase">
                 Licencias & Descansos
               </span>
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                {inactiveEmployeesCount} Activas
+              <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border ${
+                effectivePendingLeavesCount > 0
+                  ? 'text-amber-700 bg-amber-50 border-amber-200'
+                  : 'text-blue-700 bg-blue-50 border-blue-100'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${effectivePendingLeavesCount > 0 ? 'bg-amber-500' : 'bg-blue-500'}`}></span>
+                {effectivePendingLeavesCount > 0 ? `${effectivePendingLeavesCount} por revisar` : `${activeLeavesToday.length} Activas`}
               </span>
             </div>
             <div className="text-3xl font-bold font-headline text-slate-900 mt-2">
-              {inactiveEmployeesCount}
+              {activeLeavesToday.length}
             </div>
           </div>
           <div className="text-xs text-slate-600 mt-4 flex items-center gap-1.5 pt-3 border-t border-slate-100 font-medium">
             <span className="material-symbols-outlined text-[16px] text-blue-600">event_busy</span>
-            <span>Personal en permiso / descanso</span>
+            <span>
+              {activeLeavesToday.length > 0
+                ? `${activeLeavesToday.length} en descanso hoy`
+                : effectivePendingLeavesCount > 0
+                ? `${effectivePendingLeavesCount} solicitudes pendientes`
+                : 'Sin permisos ni licencias hoy'}
+            </span>
           </div>
         </div>
 
@@ -420,62 +540,78 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             </div>
 
             <div className="space-y-2.5">
-              {punchLogs.slice(0, 4).map((log) => (
-                <div
-                  key={log.id}
-                  className="flex items-start justify-between p-2.5 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all"
-                >
-                  <div className="flex items-start gap-2.5">
-                    <div
-                      className={`p-1.5 rounded-lg ${
+              {punchLogs.slice(0, 4).map((log) => {
+                // Resolver colaborador de forma inteligente por ID, PIN, DNI o coincidencia de texto
+                const emp = employees.find(
+                  (e) =>
+                    (log.empleadoId && e.id === log.empleadoId) ||
+                    (log.pin && (e.pin === log.pin || e.numeroDocumento === log.pin)) ||
+                    (log.nombreEmpleado && (
+                      (e.pin && log.nombreEmpleado.includes(e.pin)) ||
+                      (e.numeroDocumento && log.nombreEmpleado.includes(e.numeroDocumento)) ||
+                      (!log.nombreEmpleado.toLowerCase().startsWith('usuario pin') && e.nombre.toLowerCase() === log.nombreEmpleado.toLowerCase())
+                    ))
+                );
+                const resolvedNombre = emp?.nombre || log.nombreEmpleado;
+                const resolvedDoc = emp?.numeroDocumento || emp?.pin || log.pin || '';
+
+                return (
+                  <div
+                    key={log.id}
+                    className="flex items-start justify-between p-2.5 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div
+                        className={`p-1.5 rounded-lg ${
+                          log.esError
+                            ? 'bg-rose-50 text-rose-600'
+                            : log.estado === 'Sincronización'
+                            ? 'bg-slate-100 text-slate-600'
+                            : log.metodoVerificacion === 'Tarjeta RFID'
+                            ? 'bg-blue-50 text-blue-600'
+                            : log.metodoVerificacion === 'PIN'
+                            ? 'bg-amber-50 text-amber-600'
+                            : 'bg-emerald-50 text-emerald-600'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">
+                          {log.esError
+                            ? 'warning'
+                            : log.estado === 'Sincronización'
+                            ? 'sync'
+                            : log.metodoVerificacion === 'Tarjeta RFID'
+                            ? 'badge'
+                            : log.metodoVerificacion === 'PIN'
+                            ? 'dialpad'
+                            : log.metodoVerificacion === 'Rostro'
+                            ? 'face'
+                            : 'fingerprint'}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800" title={resolvedNombre}>{resolvedNombre}</p>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          {log.hora} • {log.nombreDispositivo} •{' '}
+                          <span className="font-semibold text-slate-700">
+                            {log.metodoVerificacion || 'Huella'}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
                         log.esError
-                          ? 'bg-rose-50 text-rose-600'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200'
                           : log.estado === 'Sincronización'
-                          ? 'bg-slate-100 text-slate-600'
-                          : log.metodoVerificacion === 'Tarjeta RFID'
-                          ? 'bg-blue-50 text-blue-600'
-                          : log.metodoVerificacion === 'PIN'
-                          ? 'bg-amber-50 text-amber-600'
-                          : 'bg-emerald-50 text-emerald-600'
+                          ? 'bg-slate-100 text-slate-700 border-slate-200'
+                          : 'bg-blue-50 text-blue-700 border-blue-200'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[18px]">
-                        {log.esError
-                          ? 'warning'
-                          : log.estado === 'Sincronización'
-                          ? 'sync'
-                          : log.metodoVerificacion === 'Tarjeta RFID'
-                          ? 'badge'
-                          : log.metodoVerificacion === 'PIN'
-                          ? 'dialpad'
-                          : log.metodoVerificacion === 'Rostro'
-                          ? 'face'
-                          : 'fingerprint'}
-                      </span>
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">{log.nombreEmpleado}</p>
-                      <p className="text-[11px] text-slate-500 font-mono">
-                        {log.hora} • {log.nombreDispositivo} •{' '}
-                        <span className="font-semibold text-slate-700">
-                          {log.metodoVerificacion || 'Huella'}
-                        </span>
-                      </p>
-                    </div>
+                      {log.estado}
+                    </span>
                   </div>
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                      log.esError
-                        ? 'bg-rose-50 text-rose-700 border-rose-200'
-                        : log.estado === 'Sincronización'
-                        ? 'bg-slate-100 text-slate-700 border-slate-200'
-                        : 'bg-blue-50 text-blue-700 border-blue-200'
-                    }`}
-                  >
-                    {log.estado}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

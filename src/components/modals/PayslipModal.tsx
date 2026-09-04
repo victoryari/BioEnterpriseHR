@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BoletaPago, PlanillaDetalle } from '../../types';
+import { apiService } from '../../services/apiService';
 
 interface PayslipModalProps {
   isOpen: boolean;
   onClose: () => void;
   boleta: BoletaPago | null;
   detalle?: PlanillaDetalle | null;
+  employeeEmail?: string;
+  onEmailSent?: (boletaId: string) => void;
 }
 
 export const PayslipModal: React.FC<PayslipModalProps> = ({
@@ -13,11 +16,48 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({
   onClose,
   boleta,
   detalle,
+  employeeEmail,
+  onEmailSent,
 }) => {
   if (!isOpen || !boleta) return null;
 
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSentStatus, setEmailSentStatus] = useState<string | null>(null);
+
+  const fallbackEmail =
+    employeeEmail ||
+    `${boleta.nombre_empleado.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/(^\.|\.$)/g, '')}@grupocarmelita.com`;
+
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleSendEmail = async () => {
+    const targetEmail = prompt('Confirmar o editar correo destinatario del colaborador:', fallbackEmail);
+    if (!targetEmail || !targetEmail.trim()) return;
+
+    setIsSendingEmail(true);
+    setEmailSentStatus(null);
+    try {
+      const res = await apiService.sendBoletaEmail({
+        boleta_id: boleta.id,
+        empleado_id: boleta.empleado_id,
+        nombre_empleado: boleta.nombre_empleado,
+        correo: targetEmail.trim(),
+        periodo: boleta.periodo,
+        empresa: boleta.empresa || 'Grupo Carmelita',
+        sueldo_neto: Number(detalle?.sueldo_neto ?? boleta.sueldo_neto ?? 0),
+      });
+
+      if (res.success) {
+        setEmailSentStatus(`Boleta de pago despachada con éxito a: ${targetEmail.trim()}`);
+        if (onEmailSent) onEmailSent(boleta.id);
+      }
+    } catch (err: any) {
+      alert(`Error al enviar boleta por correo: ${err.message}`);
+    } finally {
+      setIsSendingEmail(false);
+    }
   };
 
   const sueldoBasico = Number(detalle?.sueldo_basico ?? boleta.sueldo_basico ?? 2500);
@@ -36,31 +76,66 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in overflow-y-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 max-w-3xl w-full p-6 shadow-2xl space-y-6 my-8 print:shadow-none print:border-none print:p-0 print:m-0 print:w-full">
+      <div className="bg-white rounded-2xl border border-slate-200 max-w-3xl w-full p-6 shadow-2xl space-y-4 my-8 print:shadow-none print:border-none print:p-0 print:m-0 print:w-full">
         {/* Acciones de la Modal (No imprimibles) */}
-        <div className="flex justify-between items-center pb-4 border-b border-slate-100 print:hidden">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100 print:hidden">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-blue-600 text-[24px]">receipt_long</span>
-            <h3 className="text-lg font-bold text-slate-900 font-headline">
-              Boleta de Pago Oficial (Perú D.L. 728)
-            </h3>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 font-headline">
+                Boleta de Pago Oficial (Perú D.L. 728)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Entrega legal electrónica conforme al Art. 19 D.S. 001-98-TR
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
+              onClick={handleSendEmail}
+              disabled={isSendingEmail}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <span className={`material-symbols-outlined text-[16px] ${isSendingEmail ? 'animate-spin' : ''}`}>
+                {isSendingEmail ? 'sync' : 'mail'}
+              </span>
+              {isSendingEmail ? 'Enviando...' : 'Enviar al Correo'}
+            </button>
+            <button
+              type="button"
               onClick={handlePrint}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors"
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
               <span className="material-symbols-outlined text-[16px]">print</span>
               Imprimir Boleta PDF
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+              className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
             >
               <span className="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
         </div>
+
+        {/* Notificación de Éxito de Envío */}
+        {emailSentStatus && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs flex items-center justify-between print:hidden animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-emerald-600 text-[20px]">mark_email_read</span>
+              <span className="font-medium">{emailSentStatus}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEmailSentStatus(null)}
+              className="text-emerald-700 font-bold hover:underline cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        )}
 
         {/* ========================================================================= */}
         {/* BOLETA DE PAGO IMPRIMIBLE CONFORMATIVA MINTRA / SUNAT                     */}

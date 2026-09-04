@@ -159,54 +159,62 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
     };
   }, []);
 
+  const lastOpenedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (employee && isOpen) {
-      const parts = (employee.nombre || '').split(' ');
-      setNombres(employee.nombres || parts[0] || '');
-      setApellidos(employee.apellidos || (parts.length > 1 ? parts.slice(1).join(' ') : ''));
-      setTipoDocumento(employee.tipoDocumento || 'DNI');
-      setNumeroDocumento(employee.numeroDocumento || '');
-      setCorreo(employee.correo || '');
-      setCargo(employee.cargo || '');
+    if (isOpen && employee) {
+      const key = `${employee.id}_open`;
+      if (lastOpenedKeyRef.current !== key) {
+        lastOpenedKeyRef.current = key;
 
-      const safeDepts = Array.isArray(departamentos) ? departamentos.filter(Boolean) : [];
-      const isDeptValid = safeDepts.some((d) => d && d.nombre === employee.departamento);
-      setDepartamento(isDeptValid ? employee.departamento : (safeDepts[0]?.nombre || ''));
+        const parts = (employee.nombre || '').split(' ');
+        setNombres(employee.nombres || parts[0] || '');
+        setApellidos(employee.apellidos || (parts.length > 1 ? parts.slice(1).join(' ') : ''));
+        setTipoDocumento(employee.tipoDocumento || 'DNI');
+        setNumeroDocumento(employee.numeroDocumento || '');
+        setCorreo(employee.correo || '');
+        setCargo(employee.cargo || '');
 
-      const safeSedes = Array.isArray(sedes) ? sedes.filter(Boolean) : [];
-      const isSedeValid = safeSedes.some((s) => s && s.nombre === employee.sede);
-      setSede(isSedeValid ? employee.sede : (safeSedes[0]?.nombre || ''));
+        const safeDepts = Array.isArray(departamentos) ? departamentos.filter(Boolean) : [];
+        const isDeptValid = safeDepts.some((d) => d && d.nombre === employee.departamento);
+        setDepartamento(isDeptValid ? employee.departamento : (employee.departamento || safeDepts[0]?.nombre || ''));
 
-      setEmpresa(employee.empresa || EMPRESAS_GRUPO_CARMELITA?.[0] || 'Importaciones Carmelita del Norte S.A.C.');
-      setPin(employee.pin || '');
-      setTarjetaRfid(!!employee.tarjetaRfid);
-      setNumeroTarjeta(employee.numeroTarjeta || '');
-      setTipoMarcadoPredilecto(employee.tipoMarcadoPredilecto || 'Huella');
-      setBiometriaHuella(!!employee.biometriaHuella);
-      setBiometriaRostro(!!employee.biometriaRostro);
-      setEstado(employee.estado || 'Activo');
-      setTelefono(employee.telefono || '');
-      setDireccion(employee.direccion || '');
-      setFechaNacimiento(employee.fechaNacimiento || '');
-      setSueldoBase(employee.sueldoBase != null ? String(employee.sueldoBase) : '2500.00');
-      setRegimenPrevisional(employee.regimenPrevisional || 'AFP Integra');
-      setTipoComisionAfp(employee.tipoComisionAfp || 'Flujo');
-      setCuspp(employee.cuspp || '');
-      setTieneAsignacionFamiliar(employee.tieneAsignacionFamiliar ?? true);
-      setBancoSueldo(employee.bancoSueldo || 'BCP');
-      setNumeroCuentaBanco(employee.numeroCuentaBanco || '');
-      setCci(employee.cci || '');
-      setBancoCts(employee.bancoCts || 'BBVA Banco Continental');
-      setNumeroCuentaCts(employee.numeroCuentaCts || '');
-      setMonedaCts(employee.monedaCts || 'PEN');
-      setFechaIngreso(employee.fechaIngreso || todayStr);
-      setFechaCese(employee.fechaCese || '');
-      setFoto(employee.foto || '');
-      setShowUrlInput(false);
+        const safeSedes = Array.isArray(sedes) ? sedes.filter(Boolean) : [];
+        const isSedeValid = safeSedes.some((s) => s && s.nombre === employee.sede);
+        setSede(isSedeValid ? employee.sede : (employee.sede || safeSedes[0]?.nombre || ''));
+
+        setEmpresa(employee.empresa || EMPRESAS_GRUPO_CARMELITA?.[0] || 'Importaciones Carmelita del Norte S.A.C.');
+        setPin(employee.pin || '');
+        setTarjetaRfid(!!employee.tarjetaRfid);
+        setNumeroTarjeta(employee.numeroTarjeta || '');
+        setTipoMarcadoPredilecto(employee.tipoMarcadoPredilecto || 'Huella');
+        setBiometriaHuella(!!employee.biometriaHuella);
+        setBiometriaRostro(!!employee.biometriaRostro);
+        setEstado(employee.estado || 'Activo');
+        setTelefono(employee.telefono || '');
+        setDireccion(employee.direccion || '');
+        setFechaNacimiento(employee.fechaNacimiento || '');
+        setSueldoBase(employee.sueldoBase != null ? String(employee.sueldoBase) : '');
+        setRegimenPrevisional(employee.regimenPrevisional || 'AFP Integra');
+        setTipoComisionAfp(employee.tipoComisionAfp || 'Flujo');
+        setCuspp(employee.cuspp || '');
+        setTieneAsignacionFamiliar(employee.tieneAsignacionFamiliar ?? false);
+        setBancoSueldo(employee.bancoSueldo || 'BCP');
+        setNumeroCuentaBanco(employee.numeroCuentaBanco || '');
+        setCci(employee.cci || '');
+        setBancoCts(employee.bancoCts || 'BBVA Banco Continental');
+        setNumeroCuentaCts(employee.numeroCuentaCts || '');
+        setMonedaCts(employee.monedaCts || 'PEN');
+        setFechaIngreso(employee.fechaIngreso || todayStr);
+        setFechaCese(employee.fechaCese || '');
+        setFoto(employee.foto || '');
+        setShowUrlInput(false);
+      }
     } else if (!isOpen) {
+      lastOpenedKeyRef.current = null;
       handleStopCamera();
     }
-  }, [employee, isOpen, sedes, departamentos]);
+  }, [isOpen, employee?.id]);
 
   if (!isOpen || !employee) return null;
 
@@ -860,7 +868,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                         type="text"
                         value={numeroCuentaBanco}
                         onChange={(e) => setNumeroCuentaBanco(e.target.value)}
-                        placeholder="191-45678901-0-12"
+                        placeholder="Ej. 191-00000000-0-00 (Opcional)"
                         className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none"
                       />
                     </div>
@@ -871,7 +879,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                         type="text"
                         value={cci}
                         onChange={(e) => setCci(e.target.value)}
-                        placeholder="00219100456789010123"
+                        placeholder="Ej. 00219100000000000000 (Opcional)"
                         className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none"
                       />
                     </div>
@@ -910,7 +918,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                         type="text"
                         value={numeroCuentaCts}
                         onChange={(e) => setNumeroCuentaCts(e.target.value)}
-                        placeholder="0011-0123-4567890123"
+                        placeholder="Ej. 0011-0000-0000000000 (Opcional)"
                         className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono text-slate-800 outline-none"
                       />
                     </div>

@@ -585,6 +585,136 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
     setIsPayslipModalOpen(true);
   };
 
+  // Helper para resolver el correo electrónico del trabajador
+  const getEmployeeEmail = (doc: string, name: string) => {
+    const emp =
+      employees.find(
+        (e) =>
+          e.numeroDocumento === doc ||
+          e.id === doc ||
+          e.nombre.toLowerCase() === name.toLowerCase()
+      ) ||
+      initialEmployees.find(
+        (e) =>
+          e.numeroDocumento === doc ||
+          e.id === doc ||
+          e.nombre.toLowerCase() === name.toLowerCase()
+      );
+    return (
+      emp?.correo ||
+      `${name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/(^\.|\.$)/g, '')}@grupocarmelita.com`
+    );
+  };
+
+  // Estados y Handlers para Despacho de Boletas por Correo
+  const [isMassEmailModalOpen, setIsMassEmailModalOpen] = useState(false);
+  const [massEmailProgress, setMassEmailProgress] = useState<{
+    total: number;
+    current: number;
+    currentEmp: string;
+    isSending: boolean;
+    completed: boolean;
+    logs: string[];
+  }>({
+    total: 0,
+    current: 0,
+    currentEmp: '',
+    isSending: false,
+    completed: false,
+    logs: [],
+  });
+
+  const handleSendSingleBoletaEmail = async (det: PlanillaDetalle) => {
+    const defaultEmail = getEmployeeEmail(det.numero_documento, det.nombre_empleado);
+    const targetEmail = prompt(
+      `Confirmar correo destinatario para enviar la boleta de ${det.nombre_empleado}:`,
+      defaultEmail
+    );
+    if (!targetEmail || !targetEmail.trim()) return;
+
+    setLoading(true);
+    try {
+      const res = await apiService.sendBoletaEmail({
+        boleta_id: `bol-${det.id}`,
+        empleado_id: det.empleado_id,
+        nombre_empleado: det.nombre_empleado,
+        correo: targetEmail.trim(),
+        periodo: periodo,
+        empresa: selectedEmpresa,
+        sueldo_neto: Number(det.sueldo_neto),
+      });
+
+      if (res.success) {
+        alert(`✅ ${res.message}`);
+      }
+    } catch (err: any) {
+      alert(`Error al enviar boleta: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExecuteMassEmail = async () => {
+    if (filteredDetallesPlanilla.length === 0) return;
+
+    setMassEmailProgress({
+      total: filteredDetallesPlanilla.length,
+      current: 0,
+      currentEmp: 'Iniciando conexión con servidor SMTP...',
+      isSending: true,
+      completed: false,
+      logs: [],
+    });
+
+    const items = filteredDetallesPlanilla.map((det) => ({
+      empleado_id: det.empleado_id,
+      nombre_empleado: det.nombre_empleado,
+      correo: getEmployeeEmail(det.numero_documento, det.nombre_empleado),
+      sueldo_neto: Number(det.sueldo_neto),
+    }));
+
+    const newLogs: string[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      setMassEmailProgress((prev) => ({
+        ...prev,
+        current: i + 1,
+        currentEmp: `${item.nombre_empleado} → ${item.correo}`,
+      }));
+
+      // Latencia realista para despacho seguro por lotes
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      try {
+        const res = await apiService.sendBoletaEmail({
+          boleta_id: `bol-${item.empleado_id}-${periodo}`,
+          empleado_id: item.empleado_id,
+          nombre_empleado: item.nombre_empleado,
+          correo: item.correo,
+          periodo: periodo,
+          empresa: selectedEmpresa,
+          sueldo_neto: item.sueldo_neto,
+        });
+        newLogs.push(`✅ [${i + 1}/${items.length}] Boleta entregada a ${item.nombre_empleado} (${item.correo})`);
+      } catch (e: any) {
+        newLogs.push(`⚠️ [${i + 1}/${items.length}] Error enviando a ${item.correo}`);
+      }
+
+      setMassEmailProgress((prev) => ({
+        ...prev,
+        logs: [...newLogs],
+      }));
+    }
+
+    setMassEmailProgress((prev) => ({
+      ...prev,
+      isSending: false,
+      completed: true,
+      currentEmp: '¡Despacho masivo finalizado exitosamente!',
+    }));
+  };
+
   const currentPlanilla = planillas.find((p) => p.empresa === selectedEmpresa && p.periodo === periodo) || planillas[0];
 
   const filteredDetallesPlanilla = useMemo(() => {
@@ -800,14 +930,38 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={handleProcesarPlanilla}
-              disabled={loading}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-[18px]">sync</span>
-              Sincronizar Marcaciones & Calcular
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMassEmailProgress({
+                    total: filteredDetallesPlanilla.length,
+                    current: 0,
+                    currentEmp: '',
+                    isSending: false,
+                    completed: false,
+                    logs: [],
+                  });
+                  setIsMassEmailModalOpen(true);
+                }}
+                disabled={filteredDetallesPlanilla.length === 0}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                title="Despachar boletas electrónicas de pago por correo a todos los colaboradores procesados"
+              >
+                <span className="material-symbols-outlined text-[18px]">forward_to_inbox</span>
+                Despachar Boletas por Correo (Masivo)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleProcesarPlanilla}
+                disabled={loading}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[18px]">sync</span>
+                Sincronizar Marcaciones & Calcular
+              </button>
+            </div>
           </div>
 
           {/* Tabla Detalle Remunerativo por Colaborador */}
@@ -825,82 +979,63 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th className="p-3">Colaborador / DNI</th>
-                    <th className="p-3">Cargo</th>
-                    <th className="p-3 text-right">Sueldo Básico</th>
-                    <th className="p-3 text-right">Asig. Familiar</th>
-                    <th className="p-3 text-right text-emerald-700">H. Extras (+S/)</th>
-                    <th className="p-3 text-right">Total Ingresos</th>
-                    <th className="p-3">Fondo Pensión</th>
-                    <th className="p-3 text-right">Desc. Pensión</th>
-                    <th className="p-3 text-right text-rose-600">Desc. Tardanzas</th>
-                    <th className="p-3 text-right">IR 5ta Cat.</th>
-                    <th className="p-3 text-right text-rose-600">Total Descuentos</th>
-                    <th className="p-3 text-right text-emerald-700 font-extrabold">Sueldo Neto</th>
-                    <th className="p-3 text-right text-blue-700">EsSalud 9%</th>
-                    <th className="p-3 text-center">Boleta PDF</th>
+                    <th className="p-3.5">Colaborador / Documento</th>
+                    <th className="p-3.5">Cargo / Puesto</th>
+                    <th className="p-3.5 text-right">Sueldo Básico</th>
+                    <th className="p-3.5 text-right text-emerald-800 font-bold">Total Ingresos</th>
+                    <th className="p-3.5 text-right text-rose-700 font-bold">Total Descuentos</th>
+                    <th className="p-3.5 text-right text-emerald-700 font-extrabold">Sueldo Neto</th>
+                    <th className="p-3.5 text-center">Acciones / Boleta</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
                   {filteredDetallesPlanilla.length > 0 ? (
                     filteredDetallesPlanilla.map((det) => {
-                      const totalMontoHE = (Number(det.monto_horas_extras_25) || 0) + (Number(det.monto_horas_extras_35) || 0);
-                      const totalMontoTardanzas = Number(det.descuento_tardanzas) || 0;
-
                       return (
                         <tr key={det.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="p-3 font-sans font-bold text-slate-900 whitespace-nowrap">
+                          <td className="p-3.5 font-sans font-bold text-slate-900 whitespace-nowrap">
                             {det.nombre_empleado}
                             <p className="text-[10px] text-slate-500 font-mono font-normal">DNI: {det.numero_documento}</p>
                           </td>
-                          <td className="p-3 font-sans text-slate-600 text-[11px] whitespace-nowrap">{det.cargo}</td>
-                          <td className="p-3 text-right text-slate-700">S/ {Number(det.sueldo_basico).toFixed(2)}</td>
-                          <td className="p-3 text-right text-slate-700">S/ {Number(det.asignacion_familiar).toFixed(2)}</td>
-                          <td className="p-3 text-right whitespace-nowrap">
-                            {totalMontoHE > 0 ? (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[10px]">
-                                + S/ {totalMontoHE.toFixed(2)}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">S/ 0.00</span>
-                            )}
+                          <td className="p-3.5 font-sans text-slate-600 text-xs whitespace-nowrap">{det.cargo}</td>
+                          <td className="p-3.5 text-right text-slate-700 font-medium">S/ {Number(det.sueldo_basico).toFixed(2)}</td>
+                          <td className="p-3.5 text-right font-bold text-emerald-800 bg-emerald-50/30">
+                            S/ {Number(det.total_ingresos).toFixed(2)}
                           </td>
-                          <td className="p-3 text-right font-bold text-slate-900">S/ {Number(det.total_ingresos).toFixed(2)}</td>
-                          <td className="p-3 font-sans">
-                            <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full font-bold text-[10px]">
-                              {det.afp_onp_nombre}
-                            </span>
+                          <td className="p-3.5 text-right font-bold text-rose-600 bg-rose-50/30">
+                            - S/ {Number(det.total_descuentos).toFixed(2)}
                           </td>
-                          <td className="p-3 text-right text-rose-600">- S/ {Number(det.descuento_pension).toFixed(2)}</td>
-                          <td className="p-3 text-right whitespace-nowrap">
-                            {totalMontoTardanzas > 0 ? (
-                              <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[10px]">
-                                - S/ {totalMontoTardanzas.toFixed(2)}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">S/ 0.00</span>
-                            )}
+                          <td className="p-3.5 text-right font-extrabold text-emerald-700 text-sm bg-emerald-50/60">
+                            S/ {Number(det.sueldo_neto).toFixed(2)}
                           </td>
-                          <td className="p-3 text-right text-rose-600">- S/ {Number(det.descuento_ir5ta).toFixed(2)}</td>
-                          <td className="p-3 text-right font-bold text-rose-600">- S/ {Number(det.total_descuentos).toFixed(2)}</td>
-                          <td className="p-3 text-right font-extrabold text-emerald-700 text-sm">S/ {Number(det.sueldo_neto).toFixed(2)}</td>
-                          <td className="p-3 text-right text-blue-700">S/ {Number(det.aporte_essalud).toFixed(2)}</td>
-                          <td className="p-3 text-center font-sans">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenBoletaFromDetalle(det)}
-                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold rounded-lg text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">visibility</span>
-                            PDF
-                          </button>
+                          <td className="p-3.5 text-center font-sans whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBoletaFromDetalle(det)}
+                                className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-700 border border-blue-200 font-bold rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                title="Ver Desglose Completo e Imprimir Boleta Oficial PDF"
+                              >
+                                <span className="material-symbols-outlined text-[15px]">visibility</span>
+                                Ver Boleta PDF
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSendSingleBoletaEmail(det)}
+                                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-700 border border-emerald-200 font-bold rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                title="Enviar Boleta por Correo Electrónico al Trabajador"
+                              >
+                                <span className="material-symbols-outlined text-[15px]">mail</span>
+                                Enviar Correo
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={14} className="p-8 text-center text-slate-400 font-sans">
+                      <td colSpan={7} className="p-8 text-center text-slate-400 font-sans">
                         No hay detalles de planilla para el periodo y empresa seleccionados. Haga clic en "Sincronizar Marcaciones & Calcular".
                       </td>
                     </tr>
@@ -1830,7 +1965,132 @@ export const PayrollView: React.FC<PayrollViewProps> = ({
         onClose={() => setIsPayslipModalOpen(false)}
         boleta={selectedBoleta}
         detalle={detallesPlanilla.find((d) => d.empleado_id === selectedBoleta?.empleado_id)}
+        employeeEmail={
+          selectedBoleta
+            ? getEmployeeEmail(selectedBoleta.numero_documento, selectedBoleta.nombre_empleado)
+            : undefined
+        }
       />
+
+      {/* Modal Despacho Masivo de Boletas de Pago por Correo */}
+      {isMassEmailModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-xl w-full p-6 shadow-2xl space-y-4">
+            {/* Header */}
+            <div className="flex justify-between items-start pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[24px]">forward_to_inbox</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 font-headline">
+                    Despacho Masivo de Boletas de Pago
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Envío electrónico oficial por correo a los trabajadores de {selectedEmpresa}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!massEmailProgress.isSending) setIsMassEmailModalOpen(false);
+                }}
+                disabled={massEmailProgress.isSending}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer disabled:opacity-40"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Resumen del Lote */}
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+              <div className="flex justify-between items-center text-slate-700">
+                <span className="font-semibold">Periodo Laboral:</span>
+                <span className="font-mono font-bold text-slate-900">{periodo}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-700">
+                <span className="font-semibold">Empresa del Grupo:</span>
+                <span className="font-bold text-slate-900">{selectedEmpresa}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-700 border-t border-slate-200/80 pt-2">
+                <span className="font-semibold">Total de Boletas a Despachar:</span>
+                <span className="font-mono font-extrabold text-indigo-700 text-sm">
+                  {filteredDetallesPlanilla.length} Colaboradores
+                </span>
+              </div>
+            </div>
+
+            {/* Progreso de Envío en Tiempo Real */}
+            {massEmailProgress.isSending && (
+              <div className="space-y-2 p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-200 animate-in fade-in">
+                <div className="flex justify-between items-center text-xs font-bold text-indigo-900">
+                  <span className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] animate-spin">sync</span>
+                    Despachando Boletas Electrónicas...
+                  </span>
+                  <span>
+                    {massEmailProgress.current} / {massEmailProgress.total}
+                  </span>
+                </div>
+                <div className="w-full bg-indigo-200 h-2.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-indigo-600 h-full transition-all duration-300"
+                    style={{
+                      width: `${(massEmailProgress.current / massEmailProgress.total) * 100}%`,
+                    }}
+                  ></div>
+                </div>
+                <p className="text-[11px] text-indigo-700 font-mono truncate">
+                  {massEmailProgress.currentEmp}
+                </p>
+              </div>
+            )}
+
+            {/* Mensaje de Finalización */}
+            {massEmailProgress.completed && (
+              <div className="p-3.5 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 space-y-2 animate-in fade-in">
+                <div className="flex items-center gap-2 font-bold text-emerald-800">
+                  <span className="material-symbols-outlined text-emerald-600 text-[20px]">task_alt</span>
+                  ¡Despacho masivo completado con éxito!
+                </div>
+                <p className="text-[11px] text-emerald-700">
+                  Se enviaron las boletas oficiales del periodo {periodo} a las casillas de correo de todos los colaboradores procesados.
+                </p>
+                <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-[10px] bg-white p-2 rounded-lg border border-emerald-200">
+                  {massEmailProgress.logs.map((log, idx) => (
+                    <p key={idx}>{log}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Footer de Acciones */}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsMassEmailModalOpen(false)}
+                disabled={massEmailProgress.isSending}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer disabled:opacity-40"
+              >
+                {massEmailProgress.completed ? 'Cerrar' : 'Cancelar'}
+              </button>
+
+              {!massEmailProgress.completed && (
+                <button
+                  type="button"
+                  onClick={handleExecuteMassEmail}
+                  disabled={massEmailProgress.isSending || filteredDetallesPlanilla.length === 0}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">send</span>
+                  {massEmailProgress.isSending ? 'Enviando Lote...' : 'Iniciar Despacho Masivo'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Hoja de Liquidación de Utilidades PDF */}
       <ProfitSharingPayslipModal

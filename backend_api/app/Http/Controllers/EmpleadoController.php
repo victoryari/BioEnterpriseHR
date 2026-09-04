@@ -76,6 +76,17 @@ class EmpleadoController extends Controller
             'acceso_almacen' => $request->boolean('acceso_almacen', false),
         ]);
 
+        // Reconciliar marcaciones existentes con el nuevo PIN o DNI
+        \App\Models\MarcacionAsistencia::where(function ($q) use ($empleado) {
+            $q->where('pin', $empleado->pin)
+              ->orWhere('pin', $empleado->numero_documento)
+              ->orWhere('nombre_empleado', "Usuario PIN {$empleado->pin}")
+              ->orWhere('nombre_empleado', "Usuario PIN {$empleado->numero_documento}");
+        })->update([
+            'empleado_id' => $empleado->id,
+            'nombre_empleado' => $empleado->nombre_completo,
+        ]);
+
         return response()->json($empleado, 201);
     }
 
@@ -128,6 +139,17 @@ class EmpleadoController extends Controller
         if ($request->has('sueldo_base')) $data['sueldo_base'] = $request->input('sueldo_base');
 
         $empleado->update($data);
+
+        // Reconciliar marcaciones existentes con el PIN o DNI actualizado
+        \App\Models\MarcacionAsistencia::where(function ($q) use ($empleado) {
+            $q->where('pin', $empleado->pin)
+              ->orWhere('pin', $empleado->numero_documento)
+              ->orWhere('nombre_empleado', "Usuario PIN {$empleado->pin}")
+              ->orWhere('nombre_empleado', "Usuario PIN {$empleado->numero_documento}");
+        })->update([
+            'empleado_id' => $empleado->id,
+            'nombre_empleado' => $empleado->nombre_completo,
+        ]);
 
         // Actualizar o crear datos laborales y de CTS
         DB::table('empleados_datos_laborales')->updateOrInsert(
