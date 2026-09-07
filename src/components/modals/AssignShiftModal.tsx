@@ -30,6 +30,12 @@ export const AssignShiftModal: React.FC<AssignShiftModalProps> = ({
 
   React.useEffect(() => {
     if (isOpen) {
+      if (shifts.length > 0 && (!selectedShiftId || !shifts.some((s) => s.id === selectedShiftId))) {
+        setSelectedShiftId(shifts[0].id);
+      }
+      if (employees.length > 0 && (!selectedEmployeeId || !employees.some((e) => e.id === selectedEmployeeId))) {
+        setSelectedEmployeeId(employees[0].id);
+      }
       if (sedes && sedes.length > 0 && (!selectedSede || !sedes.some((s) => s.nombre === selectedSede))) {
         setSelectedSede(sedes[0].nombre);
       }
@@ -37,18 +43,25 @@ export const AssignShiftModal: React.FC<AssignShiftModalProps> = ({
         setSelectedDept(departamentos[0].nombre);
       }
     }
-  }, [isOpen, sedes, departamentos]);
+  }, [isOpen, shifts, employees, sedes, departamentos]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedShiftId) return;
+    const effectiveShiftId = selectedShiftId || shifts[0]?.id;
+    if (!effectiveShiftId) {
+      alert('Por favor registre o seleccione un turno laboral antes de asignar.');
+      return;
+    }
 
     let targetEmployeeIds: string[] = [];
 
     if (assignmentMode === 'individual') {
-      targetEmployeeIds = [selectedEmployeeId];
+      const effectiveEmpId = selectedEmployeeId || employees[0]?.id;
+      if (effectiveEmpId) {
+        targetEmployeeIds = [effectiveEmpId];
+      }
     } else if (assignmentMode === 'departamento') {
       targetEmployeeIds = employees
         .filter((emp) => emp.departamento === selectedDept && emp.estado === 'Activo')
@@ -60,14 +73,14 @@ export const AssignShiftModal: React.FC<AssignShiftModalProps> = ({
     }
 
     if (targetEmployeeIds.length === 0) {
-      alert('No se encontraron colaboradores activos en la selección.');
+      alert('No se encontraron colaboradores activos para la selección actual.');
       return;
     }
 
     const newAssignments: AsignacionTurno[] = targetEmployeeIds.map((empId) => ({
       id: `asig-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       empleadoId: empId,
-      turnoId: selectedShiftId,
+      turnoId: effectiveShiftId,
       fechaInicio,
       fechaFin: fechaFin || undefined,
     }));
