@@ -38,114 +38,155 @@ export const ProcessLiquidationModal: React.FC<ProcessLiquidationModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-      <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-2xl space-y-4">
-        {/* Header */}
-        <div className="flex justify-between items-start pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[24px]">person_remove</span>
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-3 overflow-hidden animate-in fade-in">
+      <div 
+        onClick={onClose} 
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs" 
+      />
+      
+      <div className="relative w-full max-w-xl bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col border border-slate-300 max-h-[92vh] z-10">
+        {/* Cabecera Institucional ERP */}
+        <div className="bg-[#004A99] px-4 py-2.5 flex items-center justify-between text-white shadow-sm shrink-0 border-b border-blue-900">
+          <div className="flex items-center gap-2">
+            <div className="p-1 bg-white/10 rounded">
+              <span className="material-symbols-outlined text-[18px] text-blue-200">person_remove</span>
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900 font-headline">
-                Procesar Liquidación de Cese (LBS)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Calcula Boleta Trunca, CTS, Vacaciones y Gratificación Trunca D.L. 728.
+              <h2 className="text-xs font-bold text-white uppercase tracking-tight">
+                Procesar Liquidación de Beneficios Sociales (LBS)
+              </h2>
+              <p className="text-[9px] text-blue-200 uppercase font-medium">
+                Régimen Laboral de la Actividad Privada D.L. 728
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700">
-            <span className="material-symbols-outlined text-[20px]">close</span>
+          <button 
+            onClick={onClose} 
+            className="p-1 hover:bg-red-600 rounded text-white/80 hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[16px]">close</span>
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="block font-bold text-slate-800 mb-1">Seleccionar Colaborador *</label>
-            <select
-              required
-              value={selectedEmpId}
-              onChange={(e) => setSelectedEmpId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold outline-none focus:border-rose-600 focus:bg-white"
-            >
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.nombre} ({emp.empresa || 'Grupo Carmelita'}) — DNI: {emp.numeroDocumento || '---'}
-                </option>
-              ))}
-            </select>
+        {/* Formulario */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50/70">
+          {/* Tarjeta de Parámetros de Cese */}
+          <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+            <div className="flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
+              <span className="material-symbols-outlined text-[16px] text-blue-700">assignment</span>
+              <span className="text-[11px] font-bold text-blue-950 uppercase tracking-tight">
+                Datos del Colaborador & Término Laboral
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase">Seleccionar Colaborador *</label>
+                <select
+                  required
+                  value={selectedEmpId}
+                  onChange={(e) => setSelectedEmpId(e.target.value)}
+                  className="w-full h-8 px-2 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
+                >
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.nombre} ({emp.empresa || 'Grupo Carmelita'}) — DOC: {emp.numeroDocumento || '---'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 uppercase">Fecha Efectiva de Cese *</label>
+                  <input
+                    type="date"
+                    required
+                    value={fechaCese}
+                    onChange={(e) => setFechaCese(e.target.value)}
+                    className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 uppercase">Motivo de Término *</label>
+                  <select
+                    value={motivoCese}
+                    onChange={(e) => {
+                      setMotivoCese(e.target.value);
+                      if (e.target.value.includes('Despido arbitrario')) {
+                        setIncluyeIndemnizacion(true);
+                      }
+                    }}
+                    className="w-full h-8 px-2 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
+                  >
+                    {MOTIVOS_CESE.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-800 mb-1">Fecha Efectiva de Cese *</label>
+          {/* Tarjeta de Indemnización */}
+          <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+            <div className="flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
+              <span className="material-symbols-outlined text-[16px] text-amber-600">shield_with_heart</span>
+              <span className="text-[11px] font-bold text-blue-950 uppercase tracking-tight">
+                Indemnización Legal (Art. 38 D.L. 728)
+              </span>
+            </div>
+
+            <label className="flex items-center gap-2.5 p-2 bg-amber-50/70 rounded border border-amber-200 cursor-pointer">
               <input
-                type="date"
-                required
-                value={fechaCese}
-                onChange={(e) => setFechaCese(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-mono font-bold outline-none focus:border-rose-600 focus:bg-white"
+                type="checkbox"
+                checked={incluyeIndemnizacion}
+                onChange={(e) => setIncluyeIndemnizacion(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded"
               />
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-800 mb-1">Motivo del Término Laboral *</label>
-              <select
-                value={motivoCese}
-                onChange={(e) => {
-                  setMotivoCese(e.target.value);
-                  if (e.target.value.includes('Despido arbitrario')) {
-                    setIncluyeIndemnizacion(true);
-                  }
-                }}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-bold outline-none"
-              >
-                {MOTIVOS_CESE.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
+              <div>
+                <span className="text-xs font-bold text-amber-950 block">
+                  Incluir Indemnización por Despido Arbitrario / Injustificado
+                </span>
+                <span className="text-[10px] text-amber-700 block">
+                  1.5 remuneraciones ordinarias por cada año completo de servicios (hasta tope de 12 sueldos).
+                </span>
+              </div>
+            </label>
           </div>
 
-          <label className="flex items-center gap-2 p-3 bg-amber-50 rounded-xl border border-amber-200 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={incluyeIndemnizacion}
-              onChange={(e) => setIncluyeIndemnizacion(e.target.checked)}
-              className="rounded text-rose-600 focus:ring-rose-500"
-            />
-            <span className="text-[11px] font-bold text-amber-900">
-              Incluir Indemnización por Despido Arbitrario (1.5 sueldos por año trabajado)
-            </span>
-          </label>
-
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1 text-[11px] text-slate-600">
-            <p className="font-bold text-slate-800 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[16px] text-blue-600">info</span>
-              Resumen del Proceso Automatizado:
-            </p>
-            <ul className="list-disc list-inside space-y-0.5 text-[10px]">
-              <li>Cambiará automáticamente el estado del colaborador a <strong>Cesado</strong>.</li>
-              <li>Generará la <strong>Boleta Trunca del Mes</strong> con marcaciones biométricas reales.</li>
-              <li>Emitirá la <strong>Hoja de LBS</strong> y la <strong>Carta para Liberar Fondos CTS</strong> del banco.</li>
+          {/* Tarjeta Informativa Resumen */}
+          <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-1.5">
+            <div className="flex items-center gap-1.5 text-blue-900 font-bold text-[11px] uppercase">
+              <span className="material-symbols-outlined text-[16px] text-blue-700">info</span>
+              Resumen del Proceso Automatizado
+            </div>
+            <ul className="text-[10px] text-slate-600 space-y-1 list-disc list-inside">
+              <li>El colaborador cambiará automáticamente al estado <strong>Inactivo / Cesado</strong>.</li>
+              <li>Se liquidarán partes proporcionales de <strong>Gratificación Trunca</strong> y <strong>Bonificación 9% Ley 29351</strong>.</li>
+              <li>Se liquidará la <strong>CTS Trunca</strong> computable hasta la fecha efectiva de cese.</li>
+              <li>Se calcularán las <strong>Vacaciones Truncas y No Gozadas</strong> con retención de Quinta Categoría si corresponde.</li>
             </ul>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+          {/* Footer del Formulario */}
+          <div className="px-4 py-2.5 bg-slate-100/90 border-t border-slate-200 flex items-center justify-between shrink-0 -mx-3 -mb-3 mt-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs"
+              className="h-8 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
             >
+              <span className="material-symbols-outlined text-[14px] text-red-500">close</span>
               Cancelar
             </button>
+
             <button
               type="submit"
-              className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs flex items-center gap-1.5 text-xs cursor-pointer"
+              className="h-8 px-5 bg-[#004A99] hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md cursor-pointer"
             >
-              <span className="material-symbols-outlined text-[16px]">point_of_sale</span>
-              Calcular & Generar Liquidación
+              <span className="material-symbols-outlined text-[14px]">calculate</span>
+              Calcular & Registrar Liquidación
             </button>
           </div>
         </form>

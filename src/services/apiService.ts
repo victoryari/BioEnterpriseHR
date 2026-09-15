@@ -45,6 +45,44 @@ export const setApiBaseUrl = (url: string) => {
   API_BASE_URL = url;
 };
 
+export const TOKEN_KEY = 'bioenterprise_auth_token';
+
+export const getAuthToken = (): string | null => {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+};
+
+export const setAuthToken = (token: string, remember: boolean = true) => {
+  try {
+    if (remember) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      sessionStorage.setItem(TOKEN_KEY, token);
+    }
+  } catch {}
+};
+
+export const clearAuthToken = () => {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {}
+};
+
+export const getAuthHeaders = (): Record<string, string> => {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
 export const fetchWithTimeout = async (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -55,9 +93,19 @@ export const fetchWithTimeout = async (
     controller.abort();
   }, timeoutMs);
 
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...(init?.headers as Record<string, string> || {}),
+  };
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   try {
     const res = await fetch(input, {
       ...init,
+      headers,
       signal: init?.signal || controller.signal,
     });
     return res;
@@ -169,6 +217,66 @@ export const apiService = {
       return res.ok;
     } catch {
       return false;
+    }
+  },
+
+  // =========================================================================
+  // AUTENTICACIÓN Y CONTROL DE SESIÓN
+  // =========================================================================
+  login: async (identifier: string, password?: string): Promise<{ success: boolean; token?: string; user?: any; message?: string }> => {
+    try {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ identifier, password }),
+      }, 5000);
+
+      const data = await res.json();
+      if (res.ok && data.token) {
+        setAuthToken(data.token, true);
+        return {
+          success: true,
+          token: data.token,
+          user: data.user,
+          message: data.message,
+        };
+      }
+      return {
+        success: false,
+        message: data.message || Object.values(data.errors || {})[0]?.[0] || 'Credenciales incorrectas.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || 'Error de conexión con el servidor de autenticación.',
+      };
+    }
+  },
+
+  logout: async (): Promise<void> => {
+    try {
+      await fetchWithTimeout(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      }, 3000).catch(() => {});
+    } finally {
+      clearAuthToken();
+    }
+  },
+
+  getMe: async (): Promise<any | null> => {
+    try {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/auth/me`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      }, 4000);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
     }
   },
 
@@ -502,6 +610,16 @@ export const apiService = {
       fecha_cese: emp.fechaCese || null,
       fecha_nacimiento: emp.fechaNacimiento || null,
       sueldo_base: emp.sueldoBase || 1025.00,
+      regimen_previsional: emp.regimenPrevisional || 'AFP Integra',
+      tipo_comision_afp: emp.tipoComisionAfp || 'Flujo',
+      cuspp: emp.cuspp || null,
+      tiene_asignacion_familiar: emp.tieneAsignacionFamiliar ?? false,
+      banco_sueldo: emp.bancoSueldo || 'BCP',
+      numero_cuenta_banco: emp.numeroCuentaBanco || null,
+      cci: emp.cci || null,
+      banco_cts: emp.bancoCts || 'BBVA Banco Continental',
+      numero_cuenta_cts: emp.numeroCuentaCts || null,
+      moneda_cts: emp.monedaCts || 'PEN',
       acceso_entrada_principal: emp.accesoPuertas?.entradaPrincipal ?? true,
       acceso_centro_datos: emp.accesoPuertas?.centroDatos ?? false,
       acceso_almacen: emp.accesoPuertas?.almacen ?? false,

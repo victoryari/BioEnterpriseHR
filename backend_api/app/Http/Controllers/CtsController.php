@@ -8,6 +8,7 @@ use App\Models\DepositoCtsDetalle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class CtsController extends Controller
 {
@@ -43,18 +44,38 @@ class CtsController extends Controller
             'empresa' => 'required|string|max:150',
         ]);
 
-        $periodo = $validated['periodo_semestral'];
-        $empresa = $validated['empresa'];
+        $periodo = trim($validated['periodo_semestral']);
+        $empresa = trim($validated['empresa']);
 
-        $empleados = Empleado::where('empresa', $empresa)->get();
-        if ($empleados->isEmpty()) {
-            $empleados = Empleado::all();
+        // Extraer año y semestre (MAYO o NOVIEMBRE)
+        $partes = explode('-', strtoupper($periodo));
+        $anio = intval($partes[0] ?? date('Y'));
+        $semestre = $partes[1] ?? 'MAYO';
+
+        if (str_contains($semestre, 'MAY')) {
+            // Semestre computable MAYO: 01 Noviembre (año anterior) a 30 Abril (año actual)
+            $inicioSemestre = Carbon::create($anio - 1, 11, 1, 0, 0, 0);
+            $finSemestre = Carbon::create($anio, 4, 30, 23, 59, 59);
+        } else {
+            // Semestre computable NOVIEMBRE: 01 Mayo a 31 Octubre (año actual)
+            $inicioSemestre = Carbon::create($anio, 5, 1, 0, 0, 0);
+            $finSemestre = Carbon::create($anio, 10, 31, 23, 59, 59);
         }
+
+        // Filtrar exclusivamente colaboradores activos de esta empresa
+        $empleados = Empleado::where('estado', 'Activo')
+            ->where(function ($q) use ($empresa) {
+                $q->where('empresa', $empresa);
+                if (str_contains($empresa, 'Importaciones Carmelita')) {
+                    $q->orWhereNull('empresa')->orWhere('empresa', '');
+                }
+            })
+            ->get();
 
         if ($empleados->isEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => "No se encontraron colaboradores registrados para procesar CTS.",
+                'message' => "No se encontraron colaboradores activos registrados para la empresa '{$empresa}'.",
             ], 422);
         }
 
@@ -67,20 +88,40 @@ class CtsController extends Controller
             $sueldoBase = $datosLab ? floatval($datosLab->sueldo_basico) : (floatval($emp->sueldo_base) ?: 2500.0);
             $asigFam = ($datosLab && $datosLab->tiene_asignacion_familiar) ? 102.50 : 0.0;
 
-            // 1/6 de la gratificación computable
+            // 1/6 de la gratificación computable legal (D.S. 001-97-TR)
             $sextoGrati = round(($sueldoBase + $asigFam) / 6.0, 2);
             $remunComputable = $sueldoBase + $asigFam + $sextoGrati;
 
-            $mesesLaborados = 6;
-            $diasLaborados = 0;
+            // Cálculo dinámico de Tiempo Computable dentro del semestre
+            $fechaIngreso = $emp->fecha_ingreso ? Carbon::parse($emp->fecha_ingreso) : Carbon::create($anio - 1, 1, 1);
+            
+            // Si ingresó después del fin del semestre
+            if ($fechaIngreso->gt($finSemestre)) {
+                continue;
+            }
 
-            // Fórmula CTS semestral: (Remun Computable / 12) * Meses
-            $montoCts = round(($remunComputable / 12.0) * $mesesLaborados, 2);
+            // Fecha efectiva de inicio de cómputo para este semestre
+            $fechaInicioComputo = $fechaIngreso->gt($inicioSemestre) ? $fechaIngreso : $inicioSemestre;
+            
+            // Si ingresó antes o al inicio del semestre -> 6 meses completos
+            if ($fechaIngreso->lte($inicioSemestre)) {
+                $mesesLaborados = 6;
+                $diasLaborados = 0;
+            } else {
+                // Cálculo de meses y días transcurridos hasta el fin del semestre
+                $diff = $fechaInicioComputo->diff($finSemestre->copy()->addDay());
+                $mesesLaborados = min(6, $diff->m + ($diff->y * 12));
+                $diasLaborados = min(30, $diff->d);
+            }
+
+            // Fórmula oficial CTS: (Remun Computable / 12) * Meses + (Remun Computable / 360) * Días
+            $montoCts = round((($remunComputable / 12.0) * $mesesLaborados) + (($remunComputable / 360.0) * $diasLaborados), 2);
             $montoTotalEmpresa += $montoCts;
 
             $detallesCalculados[] = [
                 'emp' => $emp,
                 'datosLab' => $datosLab,
+                'fechaIngreso' => $fechaIngreso->format('Y-m-d'),
                 'sueldoBase' => $sueldoBase,
                 'asigFam' => $asigFam,
                 'sextoGrati' => $sextoGrati,
@@ -101,7 +142,7 @@ class CtsController extends Controller
                 'periodo_semestral' => $periodo,
                 'empresa' => $empresa,
                 'conteo_trabajadores' => count($detallesCalculados),
-                'monto_total_depositado' => $montoTotalEmpresa,
+                'monto_total_depositado' => round($montoTotalEmpresa, 2),
                 'estado' => 'Procesado',
             ]);
 
@@ -118,7 +159,7 @@ class CtsController extends Controller
                     'nombre_empleado' => $emp->nombre_completo ?: ($emp->nombres . ' ' . $emp->apellidos),
                     'numero_documento' => $emp->numero_documento,
                     'cargo' => $emp->cargo ?: 'Colaborador',
-                    'fecha_ingreso' => $emp->fecha_ingreso ?: '2024-01-15',
+                    'fecha_ingreso' => $item['fechaIngreso'],
                     'sueldo_basico' => $item['sueldoBase'],
                     'asignacion_familiar' => $item['asigFam'],
                     'sexto_gratificacion' => $item['sextoGrati'],
@@ -126,8 +167,8 @@ class CtsController extends Controller
                     'meses_laborados' => $item['mesesLaborados'],
                     'dias_laborados' => $item['diasLaborados'],
                     'monto_cts_depositado' => $item['montoCts'],
-                    'banco_cts' => $datosLab ? ($datosLab->banco_cts ?: 'BCP Banco de Crédito') : 'BCP Banco de Crédito',
-                    'numero_cuenta_cts' => $datosLab ? ($datosLab->numero_cuenta_cts ?: '0011-0123-4567890123') : '0011-0123-4567890123',
+                    'banco_cts' => $datosLab ? ($datosLab->banco_cts ?: 'BCP') : 'BCP',
+                    'numero_cuenta_cts' => $datosLab ? ($datosLab->numero_cuenta_cts ?: '---') : '---',
                     'moneda' => 'PEN',
                 ]);
 
@@ -138,7 +179,7 @@ class CtsController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => "Depósito de CTS '{$periodo}' para '{$empresa}' procesado exitosamente según D.S. 001-97-TR.",
+                'message' => "Depósito de CTS '{$periodo}' para '{$empresa}' liquidado exitosamente según D.S. 001-97-TR.",
                 'cabecera' => $cierre,
                 'detalles' => $detallesResumen,
             ]);

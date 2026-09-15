@@ -43,7 +43,7 @@ class LiquidacionCeseController extends Controller
 
         $emp = Empleado::find($validated['empleado_id']);
         if (!$emp) {
-            return response()->json(['success' => false, 'message' => 'Empleado no encontrado'], 442);
+            return response()->json(['success' => false, 'message' => 'Empleado no encontrado'], 422);
         }
 
         $fechaCese = Carbon::parse($validated['fecha_cese']);
@@ -126,9 +126,9 @@ class LiquidacionCeseController extends Controller
                 'estado' => 'Procesado',
             ]);
 
-            // Actualizar estado del empleado a 'Cesado'
+            // Actualizar estado del empleado a 'Inactivo' (Soft Delete / Cese D.L. 728)
             $emp->update([
-                'estado' => 'Cesado',
+                'estado' => 'Inactivo',
                 'fecha_cese' => $fechaCese->format('Y-m-d'),
             ]);
 
@@ -137,7 +137,7 @@ class LiquidacionCeseController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => "Liquidación de Beneficios Sociales (LBS) para '{$emp->nombre_completo}' procesada exitosamente.",
-                'liquidacio' => $liq,
+                'liquidacion' => $liq,
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();

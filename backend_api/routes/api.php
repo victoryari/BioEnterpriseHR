@@ -18,6 +18,7 @@ use App\Http\Controllers\LiquidacionCeseController;
 use App\Http\Controllers\PlameController;
 use App\Http\Controllers\CtsController;
 use App\Http\Controllers\GratificacionController;
+use App\Http\Controllers\Auth\LoginController;
 use Illuminate\Support\Facades\Route;
 
 // Estado / Salud de la API
@@ -29,6 +30,15 @@ Route::get('/health', function () {
         'timestamp' => now()->toIso8601String(),
     ]);
 });
+
+// Rutas de Autenticación y Control de Sesión
+Route::post('/login', [LoginController::class, 'login']);
+Route::post('/auth/login', [LoginController::class, 'login']);
+Route::post('/logout', [LoginController::class, 'logout']);
+Route::post('/auth/logout', [LoginController::class, 'logout']);
+Route::get('/me', [LoginController::class, 'user']);
+Route::get('/auth/me', [LoginController::class, 'user']);
+
 
 // CRUD de Usuarios del Sistema
 Route::apiResource('usuarios', UsuarioController::class);

@@ -10,40 +10,35 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        Usuario::firstOrCreate(
-            ['email' => 'admin@sistema.com'],
+        Usuario::updateOrCreate(
+            ['correo' => 'admin@carmelita.pe'],
             [
-                'nombre' => 'Administrador',
-                'password' => Hash::make('admin123'),
+                'nombre' => 'Super Administrador',
+                'clave_hash' => Hash::make('admin123'),
                 'rol' => 'admin',
+                'estado' => 'Activo',
             ]
         );
 
-        Usuario::firstOrCreate(
-            ['email' => 'jurbano@grupocarmelita.com'],
+        Usuario::updateOrCreate(
+            ['correo' => 'rrhh@carmelita.pe'],
             [
-                'nombre' => 'Jefte Urbano',
-                'password' => Hash::make('operario123'),
-                'rol' => 'operario',
+                'nombre' => 'Gestor de Recursos Humanos',
+                'clave_hash' => Hash::make('rrhh123'),
+                'rol' => 'gerente_rrhh',
+                'estado' => 'Activo',
             ]
         );
 
-        Usuario::firstOrCreate(
-            ['email' => 'almacen@sistema.com'],
+        Usuario::updateOrCreate(
+            ['correo' => 'supervisor@carmelita.pe'],
             [
-                'nombre' => 'Almacenista',
-                'password' => Hash::make('almacen123'),
-                'rol' => 'almacen',
-            ]
-        );
-
-        Usuario::firstOrCreate(
-            ['email' => 'aprobador@sistema.com'],
-            [
-                'nombre' => 'Aprobador',
-                'password' => Hash::make('aprobador123'),
-                'rol' => 'aprobador',
+                'nombre' => 'Supervisor de Sede Lima',
+                'clave_hash' => Hash::make('super123'),
+                'rol' => 'supervisor',
+                'estado' => 'Activo',
             ]
         );
     }
 }
+

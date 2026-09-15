@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { LOGIN_BG } from '../../data/mockData';
+import { apiService } from '../../services/apiService';
 
 interface LoginViewProps {
-  onLogin: (role: 'admin' | 'employee', identifier?: string) => void;
+  onLogin: (role: 'admin' | 'employee', identifier?: string, user?: any) => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
@@ -10,16 +11,29 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [lang, setLang] = useState('ES');
   const [rememberMe, setRememberMe] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = identifier.trim().toLowerCase();
-    if (clean.includes('admin') || clean === 'soporte' || clean === 'sistemas' || clean === 'superadmin') {
-      onLogin('admin', identifier);
-    } else {
-      onLogin('employee', identifier);
+    setErrorMsg(null);
+    setLoading(true);
+
+    try {
+      const res = await apiService.login(identifier, password);
+      if (res.success && res.user) {
+        const role = (res.user.rol === 'admin' || res.user.rol === 'gerente_rrhh' || res.user.rol === 'supervisor') ? 'admin' : 'employee';
+        onLogin(role, identifier, res.user);
+      } else {
+        setErrorMsg(res.message || 'Credenciales no válidas. Verifique su usuario y contraseña.');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error de comunicación con el servidor.');
+    } finally {
+      setLoading(false);
     }
   };
+
 
   return (
     <div className="bg-[#F8FAFC] text-[#1E293B] min-h-screen flex items-center justify-center p-4">
@@ -160,12 +174,27 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               </button>
             </div>
 
+            {errorMsg && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center gap-2">
+                <span className="material-symbols-outlined text-red-500 text-[18px]">error</span>
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             <div>
               <button
                 type="submit"
-                className="w-full flex justify-center py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors shadow-xs active:scale-[0.99] cursor-pointer"
+                disabled={loading}
+                className="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors shadow-xs active:scale-[0.99] disabled:opacity-60 cursor-pointer"
               >
-                Iniciar Sesión
+                {loading ? (
+                  <>
+                    <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                    <span>Verificando credenciales...</span>
+                  </>
+                ) : (
+                  <span>Iniciar Sesión</span>
+                )}
               </button>
             </div>
           </form>
@@ -179,26 +208,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <button
                 type="button"
                 onClick={() => {
-                  setIdentifier('admin@bioenterprise.pe');
+                  setIdentifier('admin@carmelita.pe');
                   setPassword('admin123');
-                  onLogin('admin', 'admin@bioenterprise.pe');
                 }}
                 className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-left transition-colors group cursor-pointer"
               >
                 <div className="font-bold text-slate-900 group-hover:text-blue-700">Administrador HR</div>
-                <div className="text-[10px] text-slate-500">Acceso total de gestión</div>
+                <div className="text-[10px] text-slate-500">admin@carmelita.pe / admin123</div>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setIdentifier('legal@grupocarmelita.com');
-                  setPassword('carmelita2026');
-                  onLogin('employee', 'legal@grupocarmelita.com');
+                  setIdentifier('rrhh@carmelita.pe');
+                  setPassword('rrhh123');
                 }}
                 className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-left transition-colors group cursor-pointer"
               >
-                <div className="font-bold text-slate-900 group-hover:text-blue-700">Colaborador Legal</div>
-                <div className="text-[10px] text-slate-500">Autoservicio Carmelita</div>
+                <div className="font-bold text-slate-900 group-hover:text-blue-700">Gestor de RRHH</div>
+                <div className="text-[10px] text-slate-500">rrhh@carmelita.pe / rrhh123</div>
               </button>
             </div>
           </div>

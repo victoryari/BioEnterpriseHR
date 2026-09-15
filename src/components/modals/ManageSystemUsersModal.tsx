@@ -37,20 +37,15 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
   const [formNombre, setFormNombre] = useState('');
   const [formCorreo, setFormCorreo] = useState('');
   const [formFoto, setFormFoto] = useState('');
-  const [showUrlInput, setShowUrlInput] = useState(false);
   const [formRol, setFormRol] = useState<RolSistema>('Gestor de RRHH');
   const [formEmpresa, setFormEmpresa] = useState<string>('Todas');
   const [formSede, setFormSede] = useState<string>('Todas');
   const [formPassword, setFormPassword] = useState('');
   const [formEstado, setFormEstado] = useState<'Activo' | 'Inactivo'>('Activo');
 
-  // Estado y referencias para Cámara Web
+  // Cámara Web
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<{
-    code: 'INSECURE_CONTEXT' | 'PERMISSION_DENIED' | 'NO_DEVICE' | 'DEVICE_BUSY' | 'NOT_SUPPORTED' | 'GENERAL';
-    message: string;
-    actionType?: 'switch_localhost' | 'site_settings';
-  } | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,163 +61,42 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
 
   const handleStartCamera = async () => {
     setCameraError(null);
-
-    // 1. Detección de Contexto Inseguro (HTTP no localhost)
-    const isLocal =
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1';
-    const isHttps = window.location.protocol === 'https:';
-
-    if (!isLocal && !isHttps) {
-      const port = window.location.port ? `:${window.location.port}` : '';
-      setCameraError({
-        code: 'INSECURE_CONTEXT',
-        message:
-          `Por políticas de seguridad, los navegadores (Chrome/Edge) solo permiten encender la cámara web en vivo sobre conexiones seguras (localhost o HTTPS). Actualmente estás en "${window.location.origin}". Para usar el visor en vivo, ingresa desde "http://localhost${port}" o pulsa el botón de Cámara Nativa abajo.`,
-        actionType: 'switch_localhost',
-      });
-      return;
-    }
-
-    // 2. Comprobar si el navegador expone mediaDevices
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCameraError({
-        code: 'NOT_SUPPORTED',
-        message:
-          'Tu navegador no expone la API de cámara web en vivo para este origen. Abre la aplicación mediante http://localhost:3000.',
-      });
-      return;
-    }
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user',
-        },
-        audio: false,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
       setIsCameraActive(true);
     } catch (err: any) {
-      console.error('Error detallado de cámara:', err);
-      setIsCameraActive(false);
-
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setCameraError({
-          code: 'PERMISSION_DENIED',
-          message:
-            'El navegador bloqueó la solicitud porque el permiso de cámara fue denegado o bloqueado previamente en este sitio web.',
-          actionType: 'site_settings',
-        });
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setCameraError({
-          code: 'NO_DEVICE',
-          message:
-            'No se detectó ninguna cámara web física conectada o habilitada en este equipo.',
-        });
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        setCameraError({
-          code: 'DEVICE_BUSY',
-          message:
-            'La cámara web está ocupada por otra aplicación abierta (Zoom, Google Meet, Teams o la app Cámara de Windows). Ciérralas y vuelve a intentar.',
-        });
-      } else {
-        setCameraError({
-          code: 'GENERAL',
-          message: `No se pudo iniciar la cámara web (${err.name || 'Error'}: ${err.message || ''}).`,
-        });
-      }
+      setCameraError('No se pudo acceder a la cámara web.');
     }
   };
 
-  // Conectar el stream al video tan pronto el elemento se monte
   useEffect(() => {
     if (isCameraActive && streamRef.current && videoRef.current) {
       videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch((e) => console.warn('Error video play:', e));
+      videoRef.current.play().catch(() => {});
     }
   }, [isCameraActive]);
 
   const handleCapturePhoto = () => {
     if (!videoRef.current) return;
-    const video = videoRef.current;
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = 640;
+    canvas.height = 480;
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      // Efecto espejo horizontal idéntico a lo que ve el usuario en pantalla
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-      setFormFoto(dataUrl);
+      ctx.drawImage(videoRef.current, 0, 0, 640, 480);
+      setFormFoto(canvas.toDataURL('image/jpeg', 0.9));
     }
     handleStopCamera();
-  };
-
-  // Limpiar stream de la cámara al desmontar
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
-    };
-  }, []);
-
-  // Si se abre para editar a un usuario específico (ej: desde el perfil de usuario del Header)
-  useEffect(() => {
-    if (isOpen && initialEditUserId) {
-      const user = users.find((u) => u.id === initialEditUserId || u.correo === initialEditUserId);
-      if (user) {
-        handleOpenEdit(user);
-      }
-    }
-  }, [isOpen, initialEditUserId]);
-
-  if (!isOpen) return null;
-
-  const handleOpenCreate = () => {
-    handleStopCamera();
-    setEditingUserId(null);
-    setFormNombre('');
-    setFormCorreo('');
-    setFormFoto('');
-    setShowUrlInput(false);
-    setFormRol('Gestor de RRHH');
-    setFormEmpresa('Todas');
-    setFormSede('Todas');
-    setFormPassword('Carmelita2026!');
-    setFormEstado('Activo');
-    setIsEditing(true);
-  };
-
-  const handleOpenEdit = (user: UsuarioSistema) => {
-    handleStopCamera();
-    setEditingUserId(user.id);
-    setFormNombre(user.nombre);
-    setFormCorreo(user.correo);
-    setFormFoto(user.foto || '');
-    setShowUrlInput(false);
-    setFormRol(user.rol);
-    setFormEmpresa(user.empresaAsignada || 'Todas');
-    setFormSede(user.sedeAsignada || 'Todas');
-    setFormPassword('');
-    setFormEstado(user.estado);
-    setIsEditing(true);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (file.size > 5 * 1024 * 1024) {
       alert('La imagen no debe superar los 5MB.');
       return;
     }
-
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
@@ -232,29 +106,81 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
     reader.readAsDataURL(file);
   };
 
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
+  // Abrir en modo edición si se pasa initialEditUserId
+  useEffect(() => {
+    if (isOpen && initialEditUserId) {
+      const u = users.find((item) => item.id === initialEditUserId);
+      if (u) {
+        handleOpenEdit(u);
+      }
+    }
+  }, [isOpen, initialEditUserId]);
+
+  if (!isOpen) return null;
+
+  const handleOpenCreate = () => {
+    setEditingUserId(null);
+    setFormNombre('');
+    setFormCorreo('');
+    setFormFoto('');
+    setFormRol('Gestor de RRHH');
+    setFormEmpresa('Todas');
+    setFormSede('Todas');
+    setFormPassword('');
+    setFormEstado('Activo');
+    setIsEditing(true);
+    setActiveTab('users');
+  };
+
+  const handleOpenEdit = (user: UsuarioSistema) => {
+    setEditingUserId(user.id);
+    setFormNombre(user.nombre);
+    setFormCorreo(user.correo);
+    setFormFoto(user.foto || '');
+    setFormRol(user.rol);
+    setFormEmpresa(user.empresaAsignada || 'Todas');
+    setFormSede(user.sedeAsignada || 'Todas');
+    setFormPassword('');
+    setFormEstado(user.estado || 'Activo');
+    setIsEditing(true);
+    setActiveTab('users');
+  };
+
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formNombre.trim() || !formCorreo.trim()) return;
 
-    const existing = users.find((u) => u.id === editingUserId);
-
-    const updatedUser: UsuarioSistema = {
-      id: editingUserId || `user-${Date.now()}`,
+    const userObj: UsuarioSistema = {
+      id: editingUserId || `usr-${Date.now()}`,
       nombre: formNombre.trim(),
-      correo: formCorreo.trim().toLowerCase(),
-      foto: formFoto.trim() || undefined,
+      correo: formCorreo.trim(),
       rol: formRol,
+      estado: formEstado,
+      foto: formFoto.trim() || undefined,
       empresaAsignada: formEmpresa,
       sedeAsignada: formSede,
-      estado: formEstado,
-      ultimoAcceso: existing?.ultimoAcceso || 'Reciente',
-      creadoEn: existing?.creadoEn || new Date().toLocaleDateString('es-PE'),
+      ultimoAcceso: editingUserId
+        ? users.find((u) => u.id === editingUserId)?.ultimoAcceso || 'Nunca'
+        : 'Recién Creado',
+      creadoEn: editingUserId
+        ? users.find((u) => u.id === editingUserId)?.creadoEn || new Date().toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0],
     };
 
-    onSaveUser(updatedUser, formPassword.trim() !== '' ? formPassword.trim() : undefined);
+    onSaveUser(userObj, formPassword ? formPassword : undefined);
+    handleStopCamera();
     setIsEditing(false);
   };
 
+  // Filtrado de usuarios
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
       u.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -266,85 +192,70 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
   const getRoleBadge = (rol: RolSistema) => {
     switch (rol) {
       case 'Super Administrador':
-        return {
-          bg: 'bg-rose-50 text-rose-700 border-rose-200',
-          icon: 'shield_person',
-        };
+        return 'bg-rose-50 text-rose-700 border-rose-200';
       case 'Gestor de RRHH':
-        return {
-          bg: 'bg-blue-50 text-blue-700 border-blue-200',
-          icon: 'badge',
-        };
+        return 'bg-blue-50 text-blue-700 border-blue-200';
       case 'Supervisor de Sede':
-        return {
-          bg: 'bg-amber-50 text-amber-700 border-amber-200',
-          icon: 'location_away',
-        };
+        return 'bg-amber-50 text-amber-700 border-amber-200';
       case 'Colaborador':
-        return {
-          bg: 'bg-slate-100 text-slate-700 border-slate-200',
-          icon: 'person',
-        };
       default:
-        return {
-          bg: 'bg-slate-100 text-slate-700 border-slate-200',
-          icon: 'person',
-        };
+        return 'bg-slate-100 text-slate-700 border-slate-200';
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-      <div className="bg-white rounded-2xl border border-slate-200 max-w-5xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
-        {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-              <span className="material-symbols-outlined text-[24px]">manage_accounts</span>
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-3 overflow-hidden animate-in fade-in">
+      <div
+        onClick={() => {
+          handleStopCamera();
+          onClose();
+        }}
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs"
+      />
+
+      <div className="relative w-full max-w-4xl bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col border border-slate-300 max-h-[92vh] z-10">
+        {/* Cabecera Institucional ERP */}
+        <div className="bg-[#004A99] px-4 py-2.5 flex items-center justify-between text-white shadow-sm shrink-0 border-b border-blue-900">
+          <div className="flex items-center gap-2">
+            <div className="p-1 bg-white/10 rounded">
+              <span className="material-symbols-outlined text-[18px] text-blue-200">admin_panel_settings</span>
             </div>
             <div>
-              <h2 className="text-lg font-bold font-headline text-slate-900 leading-tight">
-                Gestión de Usuarios del Sistema y Roles de Acceso (RBAC)
+              <h2 className="text-xs font-bold text-white uppercase tracking-tight">
+                Gestión de Usuarios del Sistema y Permisos (RBAC)
               </h2>
-              <p className="text-xs text-slate-500">
-                Administra cuentas, foto de perfil, perfiles de seguridad y asignación por empresa de Grupo Carmelita.
+              <p className="text-[9px] text-blue-200 uppercase font-medium">
+                Cuentas de Acceso, Roles y Matriz de Privilegios
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2.5">
-            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-semibold shadow-2xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              MySQL: bioenterprise_hr
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                handleStopCamera();
-                onClose();
-              }}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[20px]">close</span>
-            </button>
-          </div>
+          <button
+            onClick={() => {
+              handleStopCamera();
+              onClose();
+            }}
+            className="p-1 hover:bg-red-600 rounded text-white/80 hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[16px]">close</span>
+          </button>
         </div>
 
-        {/* Sub-tabs: Lista de Usuarios vs Matriz de Roles */}
-        <div className="px-6 pt-3 pb-2 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
-          <div className="flex items-center gap-2">
+        {/* Sub-tabs */}
+        <div className="flex bg-slate-100/90 px-3 pt-1 border-b border-slate-200 gap-1 overflow-x-auto text-xs font-bold shrink-0 justify-between items-center select-none">
+          <div className="flex gap-1">
             <button
               type="button"
               onClick={() => {
                 setActiveTab('users');
                 setIsEditing(false);
               }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'users'
-                  ? 'bg-blue-50 text-blue-700 border border-blue-200/80 shadow-2xs'
-                  : 'text-slate-600 hover:bg-slate-100'
+              className={`pb-2 px-3 flex items-center gap-1.5 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'users' && !isEditing
+                  ? 'border-[#004A99] text-[#004A99] bg-white rounded-t-md shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
               }`}
             >
-              <span className="material-symbols-outlined text-[17px]">group</span>
+              <span className="material-symbols-outlined text-[15px]">group</span>
               Cuentas de Usuarios ({users.length})
             </button>
             <button
@@ -353,55 +264,55 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
                 setActiveTab('roles');
                 setIsEditing(false);
               }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`pb-2 px-3 flex items-center gap-1.5 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 activeTab === 'roles'
-                  ? 'bg-blue-50 text-blue-700 border border-blue-200/80 shadow-2xs'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'border-[#004A99] text-[#004A99] bg-white rounded-t-md shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
               }`}
             >
-              <span className="material-symbols-outlined text-[17px]">admin_panel_settings</span>
-              Matriz de Roles & Privilegios
+              <span className="material-symbols-outlined text-[15px]">security</span>
+              Matriz de Privilegios RBAC
             </button>
           </div>
 
-          {activeTab === 'users' && !isEditing && (
+          {!isEditing && (
             <button
               type="button"
               onClick={handleOpenCreate}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+              className="h-7 px-3 bg-[#004A99] hover:bg-blue-800 text-white rounded text-xs font-bold flex items-center gap-1 shadow-2xs cursor-pointer mb-1 transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px]">person_add</span>
-              Crear Nuevo Usuario
+              <span className="material-symbols-outlined text-[14px]">person_add</span>
+              Nuevo Usuario
             </button>
           )}
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+        <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50/70">
           {/* TAB 1: LISTADO DE USUARIOS */}
           {activeTab === 'users' && !isEditing && (
-            <div className="space-y-4">
+            <div className="space-y-2.5">
               {/* Filtros */}
-              <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs flex flex-col sm:flex-row gap-2 justify-between items-center">
                 <div className="relative w-full sm:w-80">
-                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">
+                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]">
                     search
                   </span>
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar por nombre o correo de acceso..."
-                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none focus:border-blue-600 focus:bg-white"
+                    placeholder="Buscar por nombre o correo..."
+                    className="w-full h-8 pl-8 pr-2.5 bg-white border border-slate-300 rounded text-xs font-medium text-slate-800 outline-none focus:border-blue-500"
                   />
                 </div>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <label className="text-xs font-bold text-slate-500">Filtrar Rol:</label>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase">Filtrar Rol:</label>
                   <select
                     value={roleFilter}
                     onChange={(e) => setRoleFilter(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none cursor-pointer focus:border-blue-600"
+                    className="h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 outline-none cursor-pointer focus:border-blue-500"
                   >
                     <option value="all">Todos los Roles</option>
                     <option value="Super Administrador">Super Administrador</option>
@@ -413,128 +324,104 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
               </div>
 
               {/* Tabla de Usuarios */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+              <div className="bg-white rounded-lg border border-slate-200 shadow-2xs overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
                       <tr>
-                        <th className="p-3">Usuario / Perfil</th>
-                        <th className="p-3">Rol del Sistema</th>
-                        <th className="p-3">Empresa Permiso</th>
-                        <th className="p-3">Sede Asignada</th>
-                        <th className="p-3 text-center">Estado</th>
-                        <th className="p-3">Último Acceso</th>
-                        <th className="p-3 text-center">Acciones</th>
+                        <th className="p-2.5">Usuario / Perfil</th>
+                        <th className="p-2.5">Rol del Sistema</th>
+                        <th className="p-2.5">Empresa</th>
+                        <th className="p-2.5">Sede</th>
+                        <th className="p-2.5 text-center">Estado</th>
+                        <th className="p-2.5">Último Acceso</th>
+                        <th className="p-2.5 text-center">Acciones</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredUsers.length > 0 ? (
                         filteredUsers.map((user) => {
                           const badge = getRoleBadge(user.rol);
+                          const isUserActive = user.estado === 'Activo';
                           return (
                             <tr key={user.id} className="hover:bg-slate-50/80 transition-colors">
-                              {/* Usuario con Foto */}
-                              <td className="p-3 whitespace-nowrap">
-                                <div className="flex items-center gap-2.5">
+                              <td className="p-2.5 whitespace-nowrap">
+                                <div className="flex items-center gap-2">
                                   {user.foto ? (
                                     <img
                                       src={user.foto}
                                       alt={user.nombre}
-                                      className="w-9 h-9 rounded-xl object-cover border border-slate-200 shrink-0 shadow-2xs"
+                                      className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
                                     />
                                   ) : (
-                                    <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-2xs">
+                                    <div className="w-7 h-7 rounded-full bg-[#004A99] text-white font-bold flex items-center justify-center text-xs shrink-0">
                                       {user.nombre.charAt(0).toUpperCase()}
                                     </div>
                                   )}
                                   <div>
-                                    <p className="font-bold text-slate-900">{user.nombre}</p>
-                                    <p className="text-[11px] text-slate-500 font-mono">{user.correo}</p>
+                                    <span className="font-bold text-slate-800 block text-xs leading-tight">
+                                      {user.nombre}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500 block">{user.correo}</span>
                                   </div>
                                 </div>
                               </td>
 
-                              {/* Rol */}
-                              <td className="p-3 whitespace-nowrap">
-                                <span
-                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.bg}`}
-                                >
-                                  <span className="material-symbols-outlined text-[13px]">
-                                    {badge.icon}
-                                  </span>
+                              <td className="p-2.5 whitespace-nowrap">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-bold ${badge}`}>
                                   {user.rol}
                                 </span>
                               </td>
 
-                              {/* Empresa */}
-                              <td className="p-3 whitespace-nowrap">
-                                <span
-                                  className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                    user.empresaAsignada === 'Todas'
-                                      ? 'bg-slate-100 text-slate-700 border-slate-200'
-                                      : user.empresaAsignada.includes('Carmelita')
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                      : user.empresaAsignada.includes('Chemmer')
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : 'bg-purple-50 text-purple-700 border-purple-200'
-                                  }`}
-                                >
-                                  {user.empresaAsignada}
-                                </span>
+                              <td className="p-2.5 whitespace-nowrap text-slate-700 text-xs">
+                                {user.empresaAsignada || 'Todas'}
                               </td>
 
-                              {/* Sede */}
-                              <td className="p-3 whitespace-nowrap text-slate-600">
-                                {user.sedeAsignada}
+                              <td className="p-2.5 whitespace-nowrap text-slate-700 text-xs">
+                                {user.sedeAsignada || 'Todas'}
                               </td>
 
-                              {/* Estado */}
-                              <td className="p-3 text-center whitespace-nowrap">
+                              <td className="p-2.5 whitespace-nowrap text-center">
                                 <button
                                   type="button"
                                   onClick={() => onToggleUserStatus(user.id)}
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer transition-all ${
-                                    user.estado === 'Activo'
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                                      : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                                    isUserActive
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                      : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
                                   }`}
-                                  title="Clic para activar o suspender acceso"
                                 >
                                   <span
                                     className={`w-1.5 h-1.5 rounded-full ${
-                                      user.estado === 'Activo' ? 'bg-emerald-500' : 'bg-rose-500'
+                                      isUserActive ? 'bg-emerald-500' : 'bg-slate-400'
                                     }`}
-                                  ></span>
-                                  {user.estado}
+                                  />
+                                  {user.estado || 'Activo'}
                                 </button>
                               </td>
 
-                              {/* Último Acceso */}
-                              <td className="p-3 text-slate-500 whitespace-nowrap text-[11px]">
-                                {user.ultimoAcceso || '---'}
+                              <td className="p-2.5 whitespace-nowrap text-slate-500 font-mono text-[10px]">
+                                {user.ultimoAcceso || 'Nunca'}
                               </td>
 
-                              {/* Acciones */}
-                              <td className="p-3 text-center whitespace-nowrap">
+                              <td className="p-2.5 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center gap-1">
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEdit(user)}
-                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                                    title="Editar datos, foto y permisos de usuario"
+                                    className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                    title="Editar cuenta"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">edit</span>
                                   </button>
-                                  {user.correo !== 'admin@bioenterprise.pe' && (
+                                  {user.rol !== 'Super Administrador' && (
                                     <button
                                       type="button"
                                       onClick={() => onDeleteUser(user.id)}
-                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
                                       title="Eliminar usuario"
                                     >
-                                      <span className="material-symbols-outlined text-[16px]">
-                                        delete
-                                      </span>
+                                      <span className="material-symbols-outlined text-[16px]">delete</span>
                                     </button>
                                   )}
                                 </div>
@@ -544,7 +431,7 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
                         })
                       ) : (
                         <tr>
-                          <td colSpan={7} className="p-8 text-center text-slate-400">
+                          <td colSpan={7} className="p-6 text-center text-slate-400 text-xs">
                             No se encontraron usuarios con los criterios de búsqueda.
                           </td>
                         </tr>
@@ -558,495 +445,274 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
 
           {/* FORMULARIO CREAR / EDITAR USUARIO */}
           {activeTab === 'users' && isEditing && (
-            <form onSubmit={handleSubmitForm} className="space-y-4 max-w-2xl mx-auto bg-slate-50 p-5 rounded-2xl border border-slate-200">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                <h3 className="text-sm font-bold font-headline text-slate-900 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-blue-600 text-[20px]">
-                    {editingUserId ? 'person_edit' : 'person_add'}
-                  </span>
-                  {editingUserId ? 'Editar Cuenta y Perfil de Usuario' : 'Crear Nueva Cuenta de Usuario'}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleStopCamera();
-                    setIsEditing(false);
-                  }}
-                  className="text-xs text-slate-500 hover:text-slate-700 font-semibold cursor-pointer"
-                >
-                  Cancelar
-                </button>
-              </div>
-
-              {/* FOTO DE PERFIL DEL USUARIO */}
-              <div className="p-3.5 bg-white rounded-2xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[16px] text-blue-600">photo_camera</span>
-                    Foto de Perfil del Usuario
-                  </label>
+            <form onSubmit={handleSubmitForm} className="space-y-2.5 max-w-2xl mx-auto">
+              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-blue-700">
+                      {editingUserId ? 'person_edit' : 'person_add'}
+                    </span>
+                    <span className="text-[11px] font-bold text-blue-950 uppercase tracking-tight">
+                      {editingUserId ? 'Editar Cuenta de Usuario' : 'Crear Nueva Cuenta de Usuario'}
+                    </span>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setShowUrlInput(!showUrlInput)}
-                    className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold underline cursor-pointer"
+                    onClick={() => {
+                      handleStopCamera();
+                      setIsEditing(false);
+                    }}
+                    className="text-[10px] text-slate-500 hover:text-slate-800 font-bold uppercase cursor-pointer"
                   >
-                    {showUrlInput ? 'Ocultar entrada URL' : 'Ingresar enlace web / URL'}
+                    Volver a lista
                   </button>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <div className="relative group shrink-0">
+                {/* Foto de perfil */}
+                <div className="flex items-center gap-3 p-2 bg-slate-50 rounded border border-slate-200">
+                  <div className="w-12 h-12 rounded-lg bg-slate-200 border border-slate-300 overflow-hidden flex items-center justify-center shrink-0">
                     {formFoto ? (
-                      <img
-                        src={formFoto}
-                        alt="Foto de perfil"
-                        className="w-16 h-16 rounded-2xl object-cover border-2 border-white shadow-xs ring-1 ring-slate-200"
-                      />
+                      <img src={formFoto} alt="Foto" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-16 h-16 rounded-2xl bg-blue-50 border-2 border-white shadow-xs ring-1 ring-slate-200 flex items-center justify-center text-xl font-bold text-blue-600">
-                        {formNombre ? formNombre.charAt(0).toUpperCase() : '?'}
-                      </div>
+                      <span className="material-symbols-outlined text-slate-400 text-[24px]">person</span>
                     )}
+                  </div>
+                  <div className="flex-1 flex flex-wrap items-center gap-1.5">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-7 px-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded flex items-center gap-1 cursor-pointer shadow-2xs"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">upload</span> Subir Foto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={isCameraActive ? handleCapturePhoto : handleStartCamera}
+                      className="h-7 px-2.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded flex items-center gap-1 cursor-pointer shadow-2xs"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">
+                        {isCameraActive ? 'camera' : 'videocam'}
+                      </span>
+                      {isCameraActive ? 'Capturar' : 'Cámara'}
+                    </button>
                     {formFoto && (
                       <button
                         type="button"
                         onClick={() => setFormFoto('')}
-                        title="Quitar foto"
-                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 text-white rounded-full flex items-center justify-center hover:bg-rose-700 transition-colors shadow-xs cursor-pointer"
+                        className="h-7 px-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded text-xs font-bold cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[14px]">close</span>
+                        Quitar
                       </button>
                     )}
                   </div>
-
-                  <div className="flex-1 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors border border-slate-200">
-                        <span className="material-symbols-outlined text-[16px] text-blue-600">upload</span>
-                        <span>Cargar desde PC</span>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                      </label>
-
-                      <button
-                        type="button"
-                        onClick={isCameraActive ? handleStopCamera : handleStartCamera}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition-colors border cursor-pointer ${
-                          isCameraActive
-                            ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
-                            : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'
-                        }`}
-                      >
-                        <span className="material-symbols-outlined text-[16px]">
-                          {isCameraActive ? 'videocam_off' : 'photo_camera'}
-                        </span>
-                        <span>{isCameraActive ? 'Apagar Cámara' : 'Tomar Foto con Cámara'}</span>
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-slate-400">
-                      Soporta JPG, PNG o captura directa mediante la cámara web de este dispositivo.
-                    </p>
-                  </div>
                 </div>
 
-                {/* Visualizador de Cámara Web en Vivo */}
                 {isCameraActive && (
-                  <div className="mt-3 p-4 bg-slate-900 rounded-2xl text-white space-y-3 animate-in fade-in">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
-                        <span className="text-xs font-bold font-headline tracking-wide uppercase text-slate-200">
-                          Cámara en Vivo — Alinea tu rostro al centro
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleStopCamera}
-                        className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-                        title="Cerrar cámara"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">close</span>
-                      </button>
-                    </div>
-
-                    <div className="relative rounded-xl overflow-hidden bg-black flex items-center justify-center max-w-sm mx-auto aspect-4/3 border border-slate-800 shadow-inner">
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover -scale-x-100"
-                      />
-                      {/* Guía facial biométrica ovalada */}
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="w-44 h-56 rounded-full border-2 border-dashed border-white/60 shadow-sm flex items-center justify-center">
-                          <span className="text-[10px] text-white/80 font-semibold bg-black/50 px-2.5 py-0.5 rounded-full">
-                            Enfoque Facial
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={handleCapturePhoto}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-2 transition-all cursor-pointer"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">camera</span>
-                        Capturar Foto Ahora
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleStopCamera}
-                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
+                  <div className="relative w-48 h-36 bg-black rounded overflow-hidden border border-blue-500 my-2">
+                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                   </div>
                 )}
 
-                {/* Diagnóstico y Solución de Cámara */}
-                {cameraError && (
-                  <div className="p-3.5 bg-amber-50/90 border border-amber-200 rounded-2xl text-amber-900 text-xs space-y-2.5 animate-in fade-in shadow-2xs">
-                    <div className="flex items-start gap-2.5">
-                      <span className="material-symbols-outlined text-amber-600 text-[20px] shrink-0 mt-0.5">
-                        {cameraError.code === 'PERMISSION_DENIED' ? 'lock' : 'videocam_off'}
-                      </span>
-                      <div className="flex-1 space-y-1">
-                        <p className="font-bold text-amber-950 text-xs">
-                          {cameraError.code === 'PERMISSION_DENIED' && 'Permiso de Cámara Bloqueado en el Navegador'}
-                          {cameraError.code === 'INSECURE_CONTEXT' && 'Se requiere Conexión Segura (localhost o HTTPS)'}
-                          {cameraError.code === 'NO_DEVICE' && 'No se detectó Cámara Web'}
-                          {cameraError.code === 'DEVICE_BUSY' && 'Cámara en uso por otra aplicación'}
-                          {cameraError.code === 'NOT_SUPPORTED' && 'API de Cámara no compatible'}
-                          {cameraError.code === 'GENERAL' && 'No se pudo acceder a la Cámara'}
-                        </p>
-                        <p className="text-[11px] text-amber-800 leading-relaxed">
-                          {cameraError.message}
-                        </p>
-
-                        {cameraError.code === 'PERMISSION_DENIED' && (
-                          <div className="mt-2 p-2.5 bg-white/90 rounded-xl border border-amber-200 text-[11px] text-slate-700 space-y-1">
-                            <p className="font-bold text-slate-800 flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[15px] text-blue-600">tune</span>
-                              Cómo desbloquear el permiso en 3 pasos:
-                            </p>
-                            <ol className="list-decimal list-inside space-y-0.5 text-slate-600 pl-1">
-                              <li>Haz clic en el icono 🔒 a la izquierda de la URL en la barra de direcciones.</li>
-                              <li>Busca <b>Cámara</b> y cámbialo a <b>"Permitir"</b>.</li>
-                              <li>Recarga la página (F5) y vuelve a pulsar el botón.</li>
-                            </ol>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Acciones Rápidas */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-200/60 justify-end">
-                      {cameraError.actionType === 'switch_localhost' && (
-                        <a
-                          href={`http://localhost:${window.location.port || '3000'}`}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
-                        >
-                          <span className="material-symbols-outlined text-[15px]">open_in_new</span>
-                          Abrir en http://localhost:{window.location.port || '3000'}
-                        </a>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => setCameraError(null)}
-                        className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-amber-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
-                      >
-                        Cerrar
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {showUrlInput && (
-                  <div className="pt-2 border-t border-slate-100">
+                {/* Campos del formulario */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">Nombre Completo *</label>
                     <input
-                      type="url"
-                      value={formFoto}
-                      onChange={(e) => setFormFoto(e.target.value)}
-                      placeholder="https://ejemplo.com/mi-foto-perfil.jpg"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-mono text-slate-800 outline-none focus:border-blue-600 focus:bg-white transition-all"
+                      type="text"
+                      required
+                      value={formNombre}
+                      onChange={(e) => setFormNombre(e.target.value)}
+                      placeholder="Ej. Valeria Torres"
+                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
                     />
                   </div>
-                )}
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                {/* Nombre */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Nombre Completo *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formNombre}
-                    onChange={(e) => setFormNombre(e.target.value)}
-                    placeholder="Ej. Valeria Torres"
-                    className="w-full p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-blue-600"
-                  />
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">Correo Electrónico *</label>
+                    <input
+                      type="email"
+                      required
+                      value={formCorreo}
+                      onChange={(e) => setFormCorreo(e.target.value)}
+                      placeholder="usuario@carmelita.pe"
+                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-medium text-slate-800 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">Rol de Acceso *</label>
+                    <select
+                      value={formRol}
+                      onChange={(e) => setFormRol(e.target.value as RolSistema)}
+                      className="w-full h-8 px-2 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none cursor-pointer"
+                    >
+                      <option value="Super Administrador">🛡️ Super Administrador</option>
+                      <option value="Gestor de RRHH">📋 Gestor de RRHH</option>
+                      <option value="Supervisor de Sede">📍 Supervisor de Sede</option>
+                      <option value="Colaborador">👤 Colaborador</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">
+                      {editingUserId ? 'Nueva Contraseña (Opcional)' : 'Contraseña de Ingreso *'}
+                    </label>
+                    <input
+                      type="password"
+                      value={formPassword}
+                      onChange={(e) => setFormPassword(e.target.value)}
+                      placeholder={editingUserId ? 'Dejar en blanco para conservar' : 'Contraseña segura'}
+                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">Empresa Asignada</label>
+                    <select
+                      value={formEmpresa}
+                      onChange={(e) => setFormEmpresa(e.target.value)}
+                      className="w-full h-8 px-2 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none cursor-pointer"
+                    >
+                      <option value="Todas">🏢 Todas las Empresas</option>
+                      {EMPRESAS_GRUPO_CARMELITA.map((emp) => (
+                        <option key={emp} value={emp}>
+                          {emp}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">Sede Permitida</label>
+                    <select
+                      value={formSede}
+                      onChange={(e) => setFormSede(e.target.value)}
+                      className="w-full h-8 px-2 bg-white border border-slate-300 rounded text-xs font-bold text-slate-800 focus:border-blue-500 outline-none cursor-pointer"
+                    >
+                      <option value="Todas">📍 Todas las Sedes</option>
+                      {sedes.map((s) => (
+                        <option key={s.id} value={s.nombre}>
+                          {s.nombre} ({s.ciudad})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
-                {/* Correo */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Correo de Acceso *</label>
-                  <input
-                    type="email"
-                    required
-                    value={formCorreo}
-                    onChange={(e) => setFormCorreo(e.target.value)}
-                    placeholder="usuario@grupocarmelita.com"
-                    className="w-full p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-blue-600"
-                  />
-                </div>
-
-                {/* Rol */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Rol de Acceso *</label>
-                  <select
-                    value={formRol}
-                    onChange={(e) => setFormRol(e.target.value as RolSistema)}
-                    className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-semibold outline-none focus:border-blue-600 cursor-pointer"
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleStopCamera();
+                      setIsEditing(false);
+                    }}
+                    className="h-8 px-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded text-xs cursor-pointer shadow-2xs"
                   >
-                    <option value="Super Administrador">🛡️ Super Administrador (Acceso Total)</option>
-                    <option value="Gestor de RRHH">📋 Gestor de RRHH (Personal, Asistencia y Nómina)</option>
-                    <option value="Supervisor de Sede">📍 Supervisor de Sede (Auditoría Local)</option>
-                    <option value="Colaborador">👤 Colaborador (Portal de Autoservicio)</option>
-                  </select>
-                </div>
-
-                {/* Contraseña */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    {editingUserId ? 'Nueva Contraseña (Opcional)' : 'Contraseña de Ingreso *'}
-                  </label>
-                  <input
-                    type="password"
-                    value={formPassword}
-                    onChange={(e) => setFormPassword(e.target.value)}
-                    placeholder={editingUserId ? 'Dejar en blanco para mantener' : 'Contraseña segura'}
-                    className="w-full p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-blue-600"
-                  />
-                </div>
-
-                {/* Empresa */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Empresa Asignada (Grupo Carmelita)
-                  </label>
-                  <select
-                    value={formEmpresa}
-                    onChange={(e) => setFormEmpresa(e.target.value)}
-                    className="w-full p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-blue-600 cursor-pointer"
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-8 px-4 bg-[#004A99] hover:bg-blue-800 text-white font-bold rounded text-xs shadow-md cursor-pointer flex items-center gap-1"
                   >
-                    <option value="Todas">🏢 Todas las Empresas del Grupo</option>
-                    {EMPRESAS_GRUPO_CARMELITA.map((emp) => (
-                      <option key={emp} value={emp}>
-                        {emp}
-                      </option>
-                    ))}
-                  </select>
+                    <span className="material-symbols-outlined text-[14px]">save</span>
+                    {editingUserId ? 'Guardar Cambios' : 'Crear Usuario'}
+                  </button>
                 </div>
-
-                {/* Sede */}
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Sede Permitida</label>
-                  <select
-                    value={formSede}
-                    onChange={(e) => setFormSede(e.target.value)}
-                    className="w-full p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-blue-600 cursor-pointer"
-                  >
-                    <option value="Todas">📍 Todas las Sedes</option>
-                    {sedes.map((s) => (
-                      <option key={s.id} value={s.nombre}>
-                        {s.nombre} ({s.ciudad})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Resumen de Alcance del Rol */}
-              <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200/60 text-xs text-blue-900 space-y-1">
-                <p className="font-bold flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[16px]">info</span>
-                  Privilegios del Rol Seleccionado:
-                </p>
-                {formRol === 'Super Administrador' && (
-                  <p className="text-[11px] text-blue-700">
-                    Tiene acceso irrestricto a Relojes Biométricos, gestión de usuarios, creación de sedes, exportación de auditoría SUNAFIL y configuración de hardware.
-                  </p>
-                )}
-                {formRol === 'Gestor de RRHH' && (
-                  <p className="text-[11px] text-blue-700">
-                    Acceso para gestionar el Módulo de Personal, Asistencias, Turnos, Horarios, Feriados y Regularizaciones manuales de marcaciones.
-                  </p>
-                )}
-                {formRol === 'Supervisor de Sede' && (
-                  <p className="text-[11px] text-blue-700">
-                    Visualiza y supervisa las marcaciones y asistencia de su sede o empresa asignada en tiempo real.
-                  </p>
-                )}
-                {formRol === 'Colaborador' && (
-                  <p className="text-[11px] text-blue-700">
-                    Acceso exclusivo y restringido a su Portal de Autoservicio (mis asistencias, boletas, permisos y solicitudes de vacaciones).
-                  </p>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleStopCamera();
-                    setIsEditing(false);
-                  }}
-                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
-                >
-                  {editingUserId ? 'Guardar Cambios' : 'Crear Usuario'}
-                </button>
               </div>
             </form>
           )}
 
           {/* TAB 2: MATRIZ DE ROLES Y PRIVILEGIOS */}
           {activeTab === 'roles' && (
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1">
-                <h4 className="font-bold text-slate-800 text-sm">
-                  Esquema de Control de Acceso Basado en Roles (RBAC)
-                </h4>
-                <p className="text-slate-500">
-                  Define el nivel de visibilidad y acción que tiene cada tipo de usuario sobre los módulos del sistema BioEnterprise HR.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className="space-y-2.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
                 {/* Super Admin */}
-                <div className="p-4 bg-white rounded-2xl border border-rose-200 shadow-2xs space-y-3">
-                  <div className="flex items-center gap-2.5 text-rose-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-[22px]">shield_person</span>
+                <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                  <div className="flex items-center gap-2 text-rose-700 font-bold text-xs uppercase border-b border-slate-100 pb-1.5">
+                    <span className="material-symbols-outlined text-[18px]">shield_person</span>
                     Super Administrador
                   </div>
-                  <p className="text-slate-600 text-[11px]">
-                    Perfil técnico y directivo con privilegios totales sobre la infraestructura.
-                  </p>
                   <ul className="space-y-1 text-slate-700 text-[11px]">
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Control total de Dispositivos Biométricos (ADMS / Push SDK)
                     </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Gestión de Usuarios y Asignación de Roles del Sistema
                     </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Administración de Sedes, Empresas y Departamentos
                     </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Configuración general y exportación de auditoría SUNAFIL
                     </li>
                   </ul>
                 </div>
 
                 {/* Gestor de RRHH */}
-                <div className="p-4 bg-white rounded-2xl border border-blue-200 shadow-2xs space-y-3">
-                  <div className="flex items-center gap-2.5 text-blue-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-[22px]">badge</span>
+                <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                  <div className="flex items-center gap-2 text-blue-700 font-bold text-xs uppercase border-b border-slate-100 pb-1.5">
+                    <span className="material-symbols-outlined text-[18px]">badge</span>
                     Gestor de RRHH
                   </div>
-                  <p className="text-slate-600 text-[11px]">
-                    Personal de Recursos Humanos, nóminas y control de tiempo del personal.
-                  </p>
                   <ul className="space-y-1 text-slate-700 text-[11px]">
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Altas, bajas y enrolamiento de colaboradores (DNI/Huella/RFID)
                     </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Control de asistencia y regularización de marcaciones
                     </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Asignación de turnos de trabajo y calendario de feriados
-                    </li>
-                    <li className="flex items-center gap-1.5 text-rose-500 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">cancel</span>
-                      Sin acceso a parámetros técnicos de red de los terminales
                     </li>
                   </ul>
                 </div>
 
                 {/* Supervisor de Sede */}
-                <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-2xs space-y-3">
-                  <div className="flex items-center gap-2.5 text-amber-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-[22px]">location_away</span>
-                    Supervisor de Sede / Planta
+                <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                  <div className="flex items-center gap-2 text-amber-700 font-bold text-xs uppercase border-b border-slate-100 pb-1.5">
+                    <span className="material-symbols-outlined text-[18px]">location_away</span>
+                    Supervisor de Sede
                   </div>
-                  <p className="text-slate-600 text-[11px]">
-                    Jefes de planta o supervisores locales en Zárate, San Borja, Los Olivos o provincias.
-                  </p>
                   <ul className="space-y-1 text-slate-700 text-[11px]">
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Supervisión de asistencia en tiempo real de su sede/empresa
                     </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
                       Consulta de marcaciones y control de incidencias locales
-                    </li>
-                    <li className="flex items-center gap-1.5 text-rose-500 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">cancel</span>
-                      Sin permisos para modificar turnos globales ni nómina
                     </li>
                   </ul>
                 </div>
 
                 {/* Colaborador */}
-                <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-                  <div className="flex items-center gap-2.5 text-slate-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-[22px]">person</span>
-                    Colaborador (Portal Autoservicio)
+                <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+                  <div className="flex items-center gap-2 text-slate-700 font-bold text-xs uppercase border-b border-slate-100 pb-1.5">
+                    <span className="material-symbols-outlined text-[18px]">person</span>
+                    Colaborador (Autoservicio)
                   </div>
-                  <p className="text-slate-600 text-[11px]">
-                    Todos los trabajadores del Grupo Carmelita que ingresan con su DNI o correo corporativo.
-                  </p>
                   <ul className="space-y-1 text-slate-700 text-[11px]">
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
-                      Ver su propio récord de asistencia y puntualidad
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                      Ver su récord de asistencia y puntualidad
                     </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
-                      Solicitar permisos, licencias y vacaciones con sustento
-                    </li>
-                    <li className="flex items-center gap-1.5 text-emerald-600 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">check_circle</span>
-                      Descargar boletas de pago y constancias de trabajo
-                    </li>
-                    <li className="flex items-center gap-1.5 text-rose-500 font-medium">
-                      <span className="material-symbols-outlined text-[15px]">cancel</span>
-                      Totalmente bloqueado de los módulos de administración del sistema
+                    <li className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                      <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                      Descargar boletas de pago y certificados
                     </li>
                   </ul>
                 </div>
@@ -1056,14 +722,14 @@ export const ManageSystemUsersModal: React.FC<ManageSystemUsersModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 flex justify-end items-center bg-slate-50 shrink-0">
+        <div className="px-4 py-2.5 bg-slate-100/90 border-t border-slate-200 flex justify-end items-center shrink-0">
           <button
             type="button"
             onClick={() => {
               handleStopCamera();
               onClose();
             }}
-            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+            className="h-8 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
           >
             Cerrar
           </button>

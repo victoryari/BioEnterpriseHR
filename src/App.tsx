@@ -452,12 +452,27 @@ export default function App() {
   }, [userRole, currentView]);
 
   // Manejadores de Autenticación
-  const handleLogin = (role: 'admin' | 'employee', identifier?: string) => {
+  const handleLogin = (role: 'admin' | 'employee', identifier?: string, userObj?: any) => {
     setUserRole(role);
+    if (userObj && userObj.id) {
+      setCurrentAdminId(String(userObj.id));
+    }
+
     if (role === 'admin') {
       setCurrentView('overview');
-      addToast('Sesión Iniciada', 'Bienvenido a BioEnterprise HR Perú (Admin)', 'success');
+      const nombreUsuario = userObj?.nombre || 'Administrador';
+      addToast('Sesión Iniciada', `Bienvenido a BioEnterprise HR, ${nombreUsuario}`, 'success');
     } else {
+      if (userObj?.empleado_id) {
+        const found = employees.find((e) => e.id === userObj.empleado_id);
+        if (found) {
+          setSelectedEmployee(found);
+          addToast('Sesión Iniciada', `Bienvenido(a), ${found.nombre}`, 'info');
+          setCurrentView('self-service');
+          return;
+        }
+      }
+
       if (identifier) {
         const clean = identifier.trim().toLowerCase();
         const cleanDoc = clean.replace(/\D/g, '');
@@ -478,34 +493,7 @@ export default function App() {
           setSelectedEmployee(found);
           addToast('Sesión Iniciada', `Bienvenido(a), ${found.nombre}`, 'info');
         } else {
-          // Si el colaborador ingresa con un DNI o credencial nueva
-          const newColab: Empleado = {
-            id: `emp-carmelita-${Date.now()}`,
-            tipoDocumento: 'DNI',
-            numeroDocumento: cleanDoc || clean,
-            pin: cleanDoc ? cleanDoc.slice(-4) : '0000',
-            biometriaHuella: false,
-            biometriaRostro: false,
-            tipoMarcadoPredilecto: 'Huella',
-            nombre: clean.includes('@') ? clean.split('@')[0].toUpperCase() : `Colaborador (${clean})`,
-            correo: clean.includes('@') ? clean : `${clean}@grupocarmelita.com`,
-            cargo: 'Colaborador',
-            departamento: departamentos[0]?.nombre || 'Almacén',
-            sede: sedes[0]?.nombre || 'Sede Principal',
-            estado: 'Activo',
-            foto: '',
-            conteoHuellas: 0,
-            rostroActualizado: 'Sin registro',
-            accesoPuertas: { entradaPrincipal: true, centroDatos: false, almacen: false },
-            telefono: '',
-            fechaIngreso: new Date().toISOString().split('T')[0],
-            sueldoBase: 0,
-          };
-          const updated = [...employees, newColab];
-          setEmployees(updated);
-          storageService.saveEmployees(updated);
-          setSelectedEmployee(newColab);
-          addToast('Sesión Iniciada', `Bienvenido(a), ${newColab.nombre}`, 'info');
+          addToast('Sesión Iniciada', 'Bienvenido al Portal de Autoservicio', 'info');
         }
       } else {
         addToast('Sesión Iniciada', 'Bienvenido al Portal de Autoservicio', 'info');
@@ -515,6 +503,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    apiService.logout();
     setCurrentView('login');
     addToast('Sesión Finalizada', 'Has cerrado sesión correctamente', 'info');
   };

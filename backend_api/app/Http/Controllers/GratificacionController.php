@@ -8,6 +8,7 @@ use App\Models\GratificacionDetalle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class GratificacionController extends Controller
 {
@@ -43,18 +44,35 @@ class GratificacionController extends Controller
             'empresa' => 'required|string|max:150',
         ]);
 
-        $periodo = $validated['periodo_semestral'];
-        $empresa = $validated['empresa'];
+        $periodo = trim($validated['periodo_semestral']);
+        $empresa = trim($validated['empresa']);
 
-        $empleados = Empleado::where('empresa', $empresa)->get();
-        if ($empleados->isEmpty()) {
-            $empleados = Empleado::all();
+        // Determinar semestre computable: JULIO (Ene-Jun) o DICIEMBRE (Jul-Dic)
+        $partes = explode('-', strtoupper($periodo));
+        $anio = intval($partes[0] ?? date('Y'));
+        $semestre = $partes[1] ?? 'JULIO';
+
+        if (str_contains($semestre, 'JUL')) {
+            $inicioSemestre = Carbon::create($anio, 1, 1, 0, 0, 0);
+            $finSemestre = Carbon::create($anio, 6, 30, 23, 59, 59);
+        } else {
+            $inicioSemestre = Carbon::create($anio, 7, 1, 0, 0, 0);
+            $finSemestre = Carbon::create($anio, 12, 31, 23, 59, 59);
         }
+
+        $empleados = Empleado::where('estado', 'Activo')
+            ->where(function ($q) use ($empresa) {
+                $q->where('empresa', $empresa);
+                if (str_contains($empresa, 'Importaciones Carmelita')) {
+                    $q->orWhereNull('empresa')->orWhere('empresa', '');
+                }
+            })
+            ->get();
 
         if ($empleados->isEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => "No se encontraron colaboradores registrados para procesar Gratificación.",
+                'message' => "No se encontraron colaboradores activos registrados para la empresa '{$empresa}'.",
             ], 422);
         }
 
@@ -70,9 +88,29 @@ class GratificacionController extends Controller
             $asigFam = ($datosLab && $datosLab->tiene_asignacion_familiar) ? 102.50 : 0.0;
 
             $remunComputable = $sueldoBase + $asigFam;
-            $mesesLaborados = 6;
 
-            // Gratificación completa legal
+            // Calcular meses completos laborados según Ley 27735
+            $fechaIngreso = $emp->fecha_ingreso ? Carbon::parse($emp->fecha_ingreso) : Carbon::create($anio, 1, 1);
+
+            if ($fechaIngreso->gt($finSemestre)) {
+                continue;
+            }
+
+            if ($fechaIngreso->lte($inicioSemestre)) {
+                $mesesLaborados = 6;
+            } else {
+                // Meses calendario completos transcurridos en el semestre
+                $mesInicio = $fechaIngreso->day === 1 ? $fechaIngreso->month : ($fechaIngreso->month + 1);
+                $mesFin = str_contains($semestre, 'JUL') ? 6 : 12;
+                $mesesLaborados = max(0, min(6, ($mesFin - $mesInicio + 1)));
+            }
+
+            // Si tiene menos de 1 mes completo, no percibe gratificación proporcional ordinaria
+            if ($mesesLaborados <= 0) {
+                continue;
+            }
+
+            // Gratificación proporcional (Sextos)
             $montoGrati = round(($remunComputable / 6.0) * $mesesLaborados, 2);
             // Bonificación Extraordinaria del 9% (Ley N° 29351)
             $bonifLey9 = round($montoGrati * 0.09, 2);
@@ -86,6 +124,7 @@ class GratificacionController extends Controller
             $detallesCalculados[] = [
                 'emp' => $emp,
                 'datosLab' => $datosLab,
+                'fechaIngreso' => $fechaIngreso->format('Y-m-d'),
                 'sueldoBase' => $sueldoBase,
                 'asigFam' => $asigFam,
                 'remunComputable' => $remunComputable,
@@ -107,9 +146,9 @@ class GratificacionController extends Controller
                 'periodo_semestral' => $periodo,
                 'empresa' => $empresa,
                 'conteo_trabajadores' => count($detallesCalculados),
-                'total_gratificacion_bruta' => $totalBruto,
-                'total_bonificacion_ley' => $totalBonif9,
-                'total_neto_pagado' => $totalNeto,
+                'total_gratificacion_bruta' => round($totalBruto, 2),
+                'total_bonificacion_ley' => round($totalBonif9, 2),
+                'total_neto_pagado' => round($totalNeto, 2),
                 'estado' => 'Procesado',
             ]);
 
@@ -126,7 +165,7 @@ class GratificacionController extends Controller
                     'nombre_empleado' => $emp->nombre_completo ?: ($emp->nombres . ' ' . $emp->apellidos),
                     'numero_documento' => $emp->numero_documento,
                     'cargo' => $emp->cargo ?: 'Colaborador',
-                    'fecha_ingreso' => $emp->fecha_ingreso ?: '2024-01-15',
+                    'fecha_ingreso' => $item['fechaIngreso'],
                     'sueldo_basico' => $item['sueldoBase'],
                     'asignacion_familiar' => $item['asigFam'],
                     'remuneracion_computable' => $item['remunComputable'],
@@ -135,8 +174,8 @@ class GratificacionController extends Controller
                     'monto_bonificacion_ley9' => $item['bonifLey9'],
                     'descuento_ir5ta' => $item['descuentoIR5ta'],
                     'total_neto_pagar' => $item['netoPagar'],
-                    'banco_abono' => $datosLab ? ($datosLab->banco_sueldo ?: 'BCP Banco de Crédito') : 'BCP Banco de Crédito',
-                    'numero_cuenta_abono' => $datosLab ? ($datosLab->numero_cuenta_banco ?: '0011-0123-4567890123') : '0011-0123-4567890123',
+                    'banco_abono' => $datosLab ? ($datosLab->banco_sueldo ?: 'BCP') : 'BCP',
+                    'numero_cuenta_abono' => $datosLab ? ($datosLab->numero_cuenta_banco ?: '---') : '---',
                 ]);
 
                 $detallesResumen[] = $det;
@@ -146,7 +185,7 @@ class GratificacionController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => "Gratificación Semestral '{$periodo}' para '{$empresa}' procesada con éxito con Bonificación 9% Ley 29351.",
+                'message' => "Gratificación Semestral '{$periodo}' para '{$empresa}' procesada exitosamente según Ley 27735 y Ley 29351.",
                 'cabecera' => $cierre,
                 'detalles' => $detallesResumen,
             ]);

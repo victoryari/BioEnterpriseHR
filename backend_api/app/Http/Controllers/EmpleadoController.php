@@ -70,11 +70,35 @@ class EmpleadoController extends Controller
             'telefono' => $request->input('telefono'),
             'direccion' => $request->input('direccion'),
             'foto_url' => $request->input('foto_url', ''),
+            'fecha_ingreso' => $request->input('fecha_ingreso', now()->toDateString()),
+            'fecha_cese' => $request->input('fecha_cese'),
+            'fecha_nacimiento' => $request->input('fecha_nacimiento'),
             'sueldo_base' => $request->input('sueldo_base', 1025.00),
             'acceso_entrada_principal' => $request->boolean('acceso_entrada_principal', true),
             'acceso_centro_datos' => $request->boolean('acceso_centro_datos', false),
             'acceso_almacen' => $request->boolean('acceso_almacen', false),
         ]);
+
+        // Guardar datos laborales, previsionales y de CTS en la tabla satélite
+        DB::table('empleados_datos_laborales')->updateOrInsert(
+            ['empleado_id' => $id],
+            [
+                'sueldo_basico' => $request->input('sueldo_base', 1025.00),
+                'regimen_previsional' => $request->input('regimen_previsional', 'AFP Integra'),
+                'tipo_comision_afp' => $request->input('tipo_comision_afp', 'Flujo'),
+                'cuspp' => $request->input('cuspp'),
+                'tiene_asignacion_familiar' => $request->boolean('tiene_asignacion_familiar', false),
+                'banco_sueldo' => $request->input('banco_sueldo', 'BCP'),
+                'numero_cuenta_banco' => $request->input('numero_cuenta_banco'),
+                'cci' => $request->input('cci'),
+                'banco_cts' => $request->input('banco_cts', 'BBVA Banco Continental'),
+                'numero_cuenta_cts' => $request->input('numero_cuenta_cts'),
+                'moneda_cts' => $request->input('moneda_cts', 'PEN'),
+                'fecha_ingreso' => $request->input('fecha_ingreso', now()->toDateString()),
+                'creado_en' => now(),
+                'updated_at' => now(),
+            ]
+        );
 
         // Reconciliar marcaciones existentes con el nuevo PIN o DNI
         \App\Models\MarcacionAsistencia::where(function ($q) use ($empleado) {
@@ -87,7 +111,7 @@ class EmpleadoController extends Controller
             'nombre_empleado' => $empleado->nombre_completo,
         ]);
 
-        return response()->json($empleado, 201);
+        return response()->json($empleado->load(['sede', 'departamento']), 201);
     }
 
     public function update(Request $request, $id)
