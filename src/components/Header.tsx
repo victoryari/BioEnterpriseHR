@@ -113,13 +113,6 @@ export const Header: React.FC<HeaderProps> = ({
 
   const realNotificationCount = notificationItems.length;
 
-  const navTabs: { id: ViewMode; label: string }[] = [
-    { id: 'overview', label: 'Panel' },
-    { id: 'hardware', label: 'Dispositivos' },
-    { id: 'personnel', label: 'Empleados' },
-    { id: 'insights', label: 'Analítica' },
-  ];
-
   return (
     <header className="flex justify-between items-center w-full px-4 lg:px-8 h-16 sticky top-0 z-30 bg-white border-b border-slate-200">
       {/* Mobile Title or Search on Desktop */}
@@ -156,25 +149,15 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
 
-      {/* Top Tabs (Web Layout) */}
-      <div className="hidden lg:flex items-center gap-8 h-full">
+      {/* Center: Context Indicator */}
+      <div className="hidden lg:flex items-center gap-2">
         {userRole === 'admin' ? (
-          navTabs.map((tab) => {
-            const isActive = currentView === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onNavigate(tab.id)}
-                className={`h-full flex items-center px-1 text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer relative ${
-                  isActive
-                    ? 'text-blue-600 font-bold border-b-2 border-blue-600'
-                    : 'text-slate-500 hover:text-slate-900 border-b-2 border-transparent'
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })
+          <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 border border-slate-200/80 rounded-full text-xs font-semibold text-slate-700 shadow-2xs">
+            <span className="material-symbols-outlined text-[16px] text-[#004A99]">corporate_fare</span>
+            <span>Grupo Carmelita</span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-500 font-medium">BioEnterprise HR v3.2</span>
+          </div>
         ) : (
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 flex items-center gap-1.5">
