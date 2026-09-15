@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { LOGIN_BG } from '../../data/mockData';
 import { apiService } from '../../services/apiService';
+import { ForgotPasswordModal } from '../modals/ForgotPasswordModal';
 
 interface LoginViewProps {
   onLogin: (role: 'admin' | 'employee', identifier?: string, user?: any) => void;
@@ -13,6 +14,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,7 +24,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     try {
       const res = await apiService.login(identifier, password);
       if (res.success && res.user) {
-        const role = (res.user.rol === 'admin' || res.user.rol === 'gerente_rrhh' || res.user.rol === 'supervisor') ? 'admin' : 'employee';
+        const role =
+          res.user.rol === 'admin' ||
+          res.user.rol === 'gerente_rrhh' ||
+          res.user.rol === 'supervisor'
+            ? 'admin'
+            : 'employee';
         onLogin(role, identifier, res.user);
       } else {
         setErrorMsg(res.message || 'Credenciales no válidas. Verifique su usuario y contraseña.');
@@ -33,7 +40,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
       setLoading(false);
     }
   };
-
 
   return (
     <div className="bg-[#F8FAFC] text-[#1E293B] min-h-screen flex items-center justify-center p-4">
@@ -48,25 +54,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
 
           <div className="relative z-10">
             <div className="flex items-center gap-2.5 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-xs">
+              <div className="w-10 h-10 rounded-xl bg-[#004A99] flex items-center justify-center text-white shadow-xs">
                 <span className="material-symbols-outlined text-[24px]">fingerprint</span>
               </div>
               <h1 className="text-2xl font-bold font-headline text-slate-900">BioEnterprise HR</h1>
             </div>
             <p className="text-base text-slate-600 font-medium max-w-xs leading-relaxed">
-              Sistema de Gestión de Biometría y RRHH.
+              Sistema de Gestión de Biometría y Recursos Humanos.
             </p>
           </div>
 
           <div className="relative z-10 flex gap-6 items-center text-slate-500 text-[11px] font-bold uppercase tracking-wider mt-12">
             <div className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px] text-blue-600">
+              <span className="material-symbols-outlined text-[16px] text-[#004A99]">
                 verified_user
               </span>
               <span>V3.2.0-Seguro</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px] text-blue-600">
+              <span className="material-symbols-outlined text-[16px] text-[#004A99]">
                 lock
               </span>
               <span>Cifrado SSL</span>
@@ -79,7 +85,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
           {/* Mobile Header */}
           <div className="flex justify-between items-center mb-6 md:hidden">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+              <div className="w-8 h-8 rounded-lg bg-[#004A99] flex items-center justify-center text-white">
                 <span className="material-symbols-outlined text-[20px]">fingerprint</span>
               </div>
               <h1 className="text-lg font-bold font-headline text-slate-900">BioEnterprise HR</h1>
@@ -168,24 +174,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               </label>
               <button
                 type="button"
-                className="font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+                onClick={() => setIsForgotModalOpen(true)}
+                className="font-semibold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
               >
                 ¿Olvidó su contraseña?
               </button>
             </div>
 
             {errorMsg && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center gap-2">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center gap-2 animate-in fade-in">
                 <span className="material-symbols-outlined text-red-500 text-[18px]">error</span>
                 <span>{errorMsg}</span>
               </div>
             )}
 
-            <div>
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors shadow-xs active:scale-[0.99] disabled:opacity-60 cursor-pointer"
+                className="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-xl bg-[#004A99] hover:bg-blue-800 text-white font-bold text-sm transition-colors shadow-xs active:scale-[0.99] disabled:opacity-60 cursor-pointer"
               >
                 {loading ? (
                   <>
@@ -198,39 +205,19 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               </button>
             </div>
           </form>
-
-          {/* Quick Demo Selector */}
-          <div className="mt-6 pt-4 border-t border-slate-100 text-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-              Acceso Rápido de Prueba:
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIdentifier('admin@carmelita.pe');
-                  setPassword('admin123');
-                }}
-                className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-left transition-colors group cursor-pointer"
-              >
-                <div className="font-bold text-slate-900 group-hover:text-blue-700">Administrador HR</div>
-                <div className="text-[10px] text-slate-500">admin@carmelita.pe / admin123</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIdentifier('rrhh@carmelita.pe');
-                  setPassword('rrhh123');
-                }}
-                className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-left transition-colors group cursor-pointer"
-              >
-                <div className="font-bold text-slate-900 group-hover:text-blue-700">Gestor de RRHH</div>
-                <div className="text-[10px] text-slate-500">rrhh@carmelita.pe / rrhh123</div>
-              </button>
-            </div>
-          </div>
         </div>
       </main>
+
+      {/* Modal de Recuperación de Contraseña */}
+      <ForgotPasswordModal
+        isOpen={isForgotModalOpen}
+        onClose={() => setIsForgotModalOpen(false)}
+        onPasswordResetSuccess={(resetId) => {
+          setIdentifier(resetId);
+          setPassword('');
+          setErrorMsg(null);
+        }}
+      />
     </div>
   );
 };

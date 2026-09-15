@@ -25,7 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'hardware' as ViewMode,
-      label: 'Hardware',
+      label: 'Dispositivos',
       icon: 'fingerprint',
     },
     {
