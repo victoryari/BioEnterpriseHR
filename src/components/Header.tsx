@@ -149,25 +149,6 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
 
-      {/* Center: Context Indicator */}
-      <div className="hidden lg:flex items-center gap-2">
-        {userRole === 'admin' ? (
-          <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 border border-slate-200/80 rounded-full text-xs font-semibold text-slate-700 shadow-2xs">
-            <span className="material-symbols-outlined text-[16px] text-[#004A99]">corporate_fare</span>
-            <span>Grupo Carmelita</span>
-            <span className="text-slate-300">•</span>
-            <span className="text-slate-500 font-medium">BioEnterprise HR v3.2</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              Portal de Autoservicio del Colaborador
-            </span>
-          </div>
-        )}
-      </div>
-
       {/* Right Controls: Notifications, Settings, Profile */}
       <div className="flex items-center gap-2 sm:gap-3 relative">
         {/* Status BD Indicator */}
